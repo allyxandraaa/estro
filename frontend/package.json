@@ -13,7 +13,8 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
-    "vue": "beta"
+    "vue": "beta",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
