@@ -1,53 +1,45 @@
-/* color palette from <https://github.com/vuejs/theme> */
 :root {
-  --vt-c-white: #ffffff;
-  --vt-c-white-soft: #f8f8f8;
-  --vt-c-white-mute: #f2f2f2;
+  /* Matcha — pulled from the mascot's body. Primary brand color. */
+  --matcha-50:  #f3f7ec;
+  --matcha-100: #e3ecd2;
+  --matcha-200: #c8dca9;
+  --matcha-300: #abc782;
+  --matcha-400: #8fb368;
+  --matcha-500: #739a4f;
+  --matcha-600: #587b3d;
+  --matcha-700: #43602e;
 
-  --vt-c-black: #181818;
-  --vt-c-black-soft: #222222;
-  --vt-c-black-mute: #282828;
+  /* Pastel pink — pulled from the mascot's hood. Secondary brand color. */
+  --pink-50:  #fff5f8;
+  --pink-100: #ffe4ef;
+  --pink-200: #ffc8dd;
+  --pink-300: #ffa6c5;
+  --pink-400: #f48aaa;
+  --pink-500: #e0708f;
+  --pink-600: #b85574;
 
-  --vt-c-indigo: #2c3e50;
+  /* Cream / white accent — the mascot's face. */
+  --cream:  #fff8f1;
+  --white:  #ffffff;
 
-  --vt-c-divider-light-1: rgba(60, 60, 60, 0.29);
-  --vt-c-divider-light-2: rgba(60, 60, 60, 0.12);
-  --vt-c-divider-dark-1: rgba(84, 84, 84, 0.65);
-  --vt-c-divider-dark-2: rgba(84, 84, 84, 0.48);
+  --ink-900: #1a0a13;
+  --ink-700: #3a2330;
+  --ink-500: #6b4f5c;
+  --ink-300: #b39ba6;
 
-  --vt-c-text-light-1: var(--vt-c-indigo);
-  --vt-c-text-light-2: rgba(60, 60, 60, 0.66);
-  --vt-c-text-dark-1: var(--vt-c-white);
-  --vt-c-text-dark-2: rgba(235, 235, 235, 0.64);
-}
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-strong: rgba(255, 255, 255, 0.94);
+  --border: rgba(143, 179, 104, 0.22);
+  --border-strong: rgba(143, 179, 104, 0.45);
 
-/* semantic color variables for this project */
-:root {
-  --color-background: var(--vt-c-white);
-  --color-background-soft: var(--vt-c-white-soft);
-  --color-background-mute: var(--vt-c-white-mute);
+  --shadow-soft: 0 10px 40px -10px rgba(115, 154, 79, 0.35);
+  --shadow-card: 0 30px 80px -30px rgba(67, 96, 46, 0.35);
 
-  --color-border: var(--vt-c-divider-light-2);
-  --color-border-hover: var(--vt-c-divider-light-1);
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
 
-  --color-heading: var(--vt-c-text-light-1);
-  --color-text: var(--vt-c-text-light-1);
-
-  --section-gap: 160px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background: var(--vt-c-black);
-    --color-background-soft: var(--vt-c-black-soft);
-    --color-background-mute: var(--vt-c-black-mute);
-
-    --color-border: var(--vt-c-divider-dark-2);
-    --color-border-hover: var(--vt-c-divider-dark-1);
-
-    --color-heading: var(--vt-c-text-dark-1);
-    --color-text: var(--vt-c-text-dark-2);
-  }
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 *,
@@ -55,32 +47,45 @@
 *::after {
   box-sizing: border-box;
   margin: 0;
-  font-weight: normal;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  min-height: 100vh;
 }
 
 body {
-  min-height: 100vh;
-  color: var(--color-text);
-  background: var(--color-background);
-  transition:
-    color 0.5s,
-    background-color 0.5s;
-  line-height: 1.6;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    'Fira Sans',
-    'Droid Sans',
-    'Helvetica Neue',
-    sans-serif;
+  font-family: var(--font-sans);
   font-size: 15px;
-  text-rendering: optimizeLegibility;
+  line-height: 1.55;
+  color: var(--ink-900);
+  background: var(--matcha-50);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+input {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--matcha-600);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--matcha-500);
 }
