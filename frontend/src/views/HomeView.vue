@@ -16,10 +16,10 @@ function handleLogout() {
 <template>
   <main class="home">
     <h1 class="home-heading">
-      <span class="home-heading-line">You're in</span>
-      <span class="home-heading-line"><em>your rhythm</em>.</span>
+      <span class="home-heading-line">Ви у</span>
+      <span class="home-heading-line"><em>своєму ритмі</em>.</span>
     </h1>
-    <button class="home-logout" type="button" @click="handleLogout">Sign out</button>
+    <button class="home-logout" type="button" @click="handleLogout">Вийти</button>
   </main>
 </template>
 

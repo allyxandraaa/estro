@@ -50,19 +50,19 @@ async function handleSubmit() {
 <template>
   <div class="auth-page">
     <h1 class="auth-heading">
-      <span class="auth-heading-line">Welcome back</span>
-      <span class="auth-heading-line">to <em>your rhythm</em>.</span>
+      <span class="auth-heading-line">Ласкаво просимо</span>
+      <span class="auth-heading-line">до <em>твого ритму</em>.</span>
     </h1>
     <p class="auth-subtitle">
-      <span>Register to keep listening to you cycle, hormones</span>
-      <span>and the patterns underneath.</span>
+      <span>Зареєструйтся, щоб жити в унісон зі своїм циклом, пізнавати</span>
+      <span>мову гормонів та бачити внутрішні паттерни.</span>
     </p>
 
     <form class="auth-form" novalidate @submit.prevent="handleSubmit">
       <p v-if="errorMessage" class="auth-error" role="alert">{{ errorMessage }}</p>
 
       <div class="field">
-        <label class="field-label" for="register-email">email</label>
+        <label class="field-label" for="register-email">пошта</label>
         <input
           id="register-email"
           v-model="form.email"
@@ -74,7 +74,7 @@ async function handleSubmit() {
       </div>
 
       <div class="field">
-        <label class="field-label" for="register-password">password</label>
+        <label class="field-label" for="register-password">пароль</label>
         <input
           id="register-password"
           v-model="form.password"
@@ -87,7 +87,7 @@ async function handleSubmit() {
       </div>
 
       <div class="field" :class="{ 'field--error': mismatched }">
-        <label class="field-label" for="register-confirm">confirm your password</label>
+        <label class="field-label" for="register-confirm">підтвердіть пароль</label>
         <input
           id="register-confirm"
           v-model="form.confirm"
@@ -99,13 +99,13 @@ async function handleSubmit() {
       </div>
 
       <button class="auth-submit" type="submit" :disabled="submitting">
-        {{ submitting ? 'Creating account…' : 'Register' }}
+        {{ submitting ? 'Створюємо акаунт…' : 'Зареєструватись' }}
       </button>
     </form>
 
     <p class="auth-footer">
-      Already have an account?
-      <RouterLink :to="{ name: 'login' }">Sign in.</RouterLink>
+      Вже маєте акаунт?
+      <RouterLink :to="{ name: 'login' }">Увійти.</RouterLink>
     </p>
   </div>
 </template>
