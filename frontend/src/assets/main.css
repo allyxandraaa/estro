@@ -1,14 +1,6 @@
 @import './base.css';
-@import './forms.css';
 
 #app {
   position: relative;
   min-height: 100vh;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at 12% 18%, rgba(200, 220, 169, 0.65), transparent 50%),
-    radial-gradient(circle at 88% 82%, rgba(255, 200, 221, 0.55), transparent 50%),
-    radial-gradient(circle at 90% 12%, rgba(255, 248, 241, 0.9), transparent 45%),
-    linear-gradient(140deg, #f3f7ec 0%, #fff8f1 50%, #fff5f8 100%);
-  background-attachment: fixed;
 }
