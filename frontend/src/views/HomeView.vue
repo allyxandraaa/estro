@@ -1,11 +1,13 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth.js'
+import { auth } from '../api'
 
 const router = useRouter()
 const { logout } = useAuth()
 
 function handleLogout() {
+  auth.logout()
   logout()
   router.push({ name: 'login' })
 }
@@ -13,52 +15,53 @@ function handleLogout() {
 
 <template>
   <main class="home">
-    <div class="card">
-      <h1>Вітаємо в Estro</h1>
-      <p>Ви успішно увійшли.</p>
-      <button class="link" type="button" @click="handleLogout">Вийти</button>
-    </div>
+    <h1 class="home-heading">
+      <span class="home-heading-line">You're in</span>
+      <span class="home-heading-line"><em>your rhythm</em>.</span>
+    </h1>
+    <button class="home-logout" type="button" @click="handleLogout">Sign out</button>
   </main>
 </template>
 
 <style scoped>
 .home {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 2rem;
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  background: #fff;
+  color: #000;
 }
 
-.card {
-  background: var(--surface-strong);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 3rem;
-  box-shadow: var(--shadow-card);
+.home-heading {
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-weight: 400;
+  font-size: clamp(40px, 6vh, 65px);
+  line-height: 1;
   text-align: center;
-  max-width: 400px;
+  letter-spacing: -0.005em;
 }
 
-h1 {
-  font-size: 1.75rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: var(--ink-900);
+.home-heading-line {
+  display: block;
 }
 
-p {
-  color: var(--ink-700);
-  margin-bottom: 1.5rem;
+.home-heading em {
+  font-style: italic;
 }
 
-.link {
-  color: var(--matcha-600);
-  font-weight: 500;
-  font-size: 0.95rem;
+.home-logout {
+  font-family: 'Geist', sans-serif;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.4);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-.link:hover {
-  color: var(--matcha-500);
+.home-logout:hover {
+  color: rgba(0, 0, 0, 0.7);
 }
 </style>
