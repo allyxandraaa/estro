@@ -17,6 +17,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      watch: {
+        usePolling: true,
+        interval: 1000,
+      },
       proxy: {
         '/api': {
           target: backend,
