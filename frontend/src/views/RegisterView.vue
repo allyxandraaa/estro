@@ -128,15 +128,33 @@ async function handleSubmit() {
   --fixed-content: 406px;
   --gap-budget: max(0px, calc((100vh - var(--fixed-content)) * 0.92));
 
+  position: relative;
   height: 100vh;
   width: 100%;
   overflow: hidden;
-  background: #fff;
+  background: transparent;
   color: #000;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 0 24px;
+}
+
+.auth-heading,
+.auth-subtitle,
+.auth-form,
+.auth-footer {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-page {
+  animation: fade-in 0.6s ease both;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .auth-heading {
