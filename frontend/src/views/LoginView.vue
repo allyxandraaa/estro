@@ -29,19 +29,19 @@ async function handleSubmit() {
 <template>
   <div class="auth-page">
     <h1 class="auth-heading">
-      <span class="auth-heading-line">Welcome back</span>
-      <span class="auth-heading-line">to <em>your rhythm</em>.</span>
+      <span class="auth-heading-line">З поверненням</span>
+      <span class="auth-heading-line">до <em>твого ритму</em>.</span>
     </h1>
     <p class="auth-subtitle">
-      <span>Sign in to keep listening to you cycle, hormones</span>
-      <span>and the patterns underneath.</span>
+      <span>Увійди, щоб жити в унісон зі своїм циклом, пізнавати</span>
+      <span>мову гормонів та бачити внутрішні паттерни.</span>
     </p>
 
     <form class="auth-form" novalidate @submit.prevent="handleSubmit">
       <p v-if="errorMessage" class="auth-error" role="alert">{{ errorMessage }}</p>
 
       <div class="field">
-        <label class="field-label" for="login-email">email</label>
+        <label class="field-label" for="login-email">пошта</label>
         <input
           id="login-email"
           v-model="form.email"
@@ -53,7 +53,7 @@ async function handleSubmit() {
       </div>
 
       <div class="field">
-        <label class="field-label" for="login-password">password</label>
+        <label class="field-label" for="login-password">пароль</label>
         <input
           id="login-password"
           v-model="form.password"
@@ -62,17 +62,17 @@ async function handleSubmit() {
           autocomplete="current-password"
           required
         />
-        <a class="field-meta" href="#" @click.prevent>forgot your password?</a>
+        <a class="field-meta" href="#" @click.prevent>забули пароль?</a>
       </div>
 
       <button class="auth-submit" type="submit" :disabled="submitting">
-        {{ submitting ? 'Signing in…' : 'Continue' }}
+        {{ submitting ? 'Входимо…' : 'Продовжити' }}
       </button>
     </form>
 
     <p class="auth-footer">
-      New here?
-      <RouterLink :to="{ name: 'register' }">Create an account.</RouterLink>
+      Вперше тут?
+      <RouterLink :to="{ name: 'register' }">Створити акаунт.</RouterLink>
     </p>
   </div>
 </template>

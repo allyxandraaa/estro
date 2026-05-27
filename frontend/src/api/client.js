@@ -20,7 +20,7 @@ client.interceptors.response.use(
       error.response?.data?.message ||
       error.response?.data?.error ||
       error.message ||
-      'Помилка запиту'
+      'Щось пішло не так. Спробуйте ще раз.'
     return Promise.reject(new Error(message))
   },
 )
