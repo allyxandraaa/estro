@@ -33,11 +33,10 @@ async function handleSubmit() {
   submitting.value = true
   try {
     await auth.register({
-      name: form.email.trim().split('@')[0],
       email: form.email.trim(),
       password: form.password,
     })
-    router.push({ name: 'home' })
+    router.push({ name: 'login' })
   } catch (err) {
     errorMessage.value = err.message || 'Не вдалося створити акаунт. Спробуйте ще раз.'
   } finally {
