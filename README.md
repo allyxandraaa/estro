@@ -27,10 +27,37 @@
 
 ```
 estro/
-├── frontend/        # Vue.js застосунок
-├── backend/         # FastAPI сервер
+├── frontend/            # Vue.js застосунок
+│   └── Dockerfile
+├── backend/             # FastAPI сервер
+│   ├── alembic/         # міграції бази даних
+│   └── Dockerfile
+├── docker-compose.yml
 └── README.md
 ```
+
+## Запуск
+
+Потрібен [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+Створи файл `.env` у корені репозиторію:
+
+```
+SECRET_KEY=your-secret-key
+```
+
+```bash
+# перший запуск — збирає образи і стартує всі три контейнери
+docker compose up --build
+
+# наступні запуски
+docker compose up
+
+# зупинка (з -v також видаляє базу даних)
+docker compose down
+```
+
+Після запуску застосунок доступний на http://localhost:5173, документація API — на http://localhost:3000/docs.
 
 ## Автори
 
