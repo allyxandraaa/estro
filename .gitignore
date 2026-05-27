@@ -33,9 +33,9 @@ node_modules/
 dist/
 dist-ssr/
 coverage/
-*.local
 *.tsbuildinfo
 .eslintcache
+*.timestamp-*-*.mjs
 
 # ---------- Python / FastAPI (backend) ----------
 __pycache__/
@@ -92,4 +92,3 @@ db-data/
 *.bak
 *.tmp
 *.orig
-venv/

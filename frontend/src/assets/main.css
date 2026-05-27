@@ -1,0 +1,6 @@
+@import './base.css';
+
+#app {
+  position: relative;
+  min-height: 100vh;
+}
