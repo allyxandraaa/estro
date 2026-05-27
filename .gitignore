@@ -33,6 +33,7 @@ node_modules/
 dist/
 dist-ssr/
 coverage/
+.vite/
 *.tsbuildinfo
 .eslintcache
 *.timestamp-*-*.mjs
