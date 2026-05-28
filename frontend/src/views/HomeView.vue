@@ -25,6 +25,7 @@ function handleLogout() {
 
 <style scoped>
 .home {
+  position: relative;
   height: 100vh;
   width: 100%;
   display: flex;
@@ -32,8 +33,14 @@ function handleLogout() {
   align-items: center;
   justify-content: center;
   gap: 32px;
-  background: #fff;
+  background: transparent;
   color: #000;
+}
+
+.home-heading,
+.home-logout {
+  position: relative;
+  z-index: 1;
 }
 
 .home-heading {

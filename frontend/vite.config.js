@@ -7,7 +7,7 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const backend = env.VITE_BACKEND_ORIGIN || 'http://localhost:3000'
+  const backend = env.VITE_BACKEND_ORIGIN || process.env.VITE_BACKEND_ORIGIN || 'http://localhost:3000'
 
   return {
     plugins: [vue(), vueDevTools()],
@@ -17,6 +17,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      watch: {
+        usePolling: true,
+        interval: 1000,
+      },
       proxy: {
         '/api': {
           target: backend,
