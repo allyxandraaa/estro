@@ -37,11 +37,11 @@ class AuthService:
 
         try:
             created_user = await self._user_repo.create(user)
-        except IntegrityError:
+        except IntegrityError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Користувач із такою електронною поштою вже існує",
-            )
+            ) from None
 
         return RegisterResponse.model_validate(created_user)
 
