@@ -93,3 +93,4 @@ db-data/
 *.bak
 *.tmp
 *.orig
+dummy.py
