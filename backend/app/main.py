@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.controllers import auth_router
+from app.controllers import auth_router, onboarding_router
 
 app = FastAPI(
     title="Estro API",
@@ -9,6 +9,7 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
+app.include_router(onboarding_router)
 
 
 @app.get("/health")

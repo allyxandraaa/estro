@@ -29,3 +29,17 @@ class UserRepository:
             raise
         await self._session.refresh(user)
         return user
+
+    async def update_onboarding(self, user_id: UUID, cycle_length: int, period_length: int) -> User | None:
+        user = await self.get_by_id(user_id)
+        if not user:
+            return None
+        user.average_cycle_length = cycle_length
+        user.average_period_length = period_length
+        try:
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+        await self._session.refresh(user)
+        return user
