@@ -22,6 +22,10 @@ class UserRepository:
 
     async def create(self, user: User) -> User:
         self._session.add(user)
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
         await self._session.refresh(user)
         return user

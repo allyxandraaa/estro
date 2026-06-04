@@ -1,8 +1,10 @@
+from asyncio import to_thread
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from jose import jwt
 from passlib.context import CryptContext
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.models.user import User
@@ -26,14 +28,21 @@ class AuthService:
                 detail="Користувач із такою електронною поштою вже існує",
             )
 
-        password_hash = pwd_context.hash(data.password)
+        password_hash = await to_thread(pwd_context.hash, data.password)
 
         user = User(
             email=data.email,
             password_hash=password_hash,
         )
 
-        created_user = await self._user_repo.create(user)
+        try:
+            created_user = await self._user_repo.create(user)
+        except IntegrityError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Користувач із такою електронною поштою вже існує",
+            ) from None
+
         return RegisterResponse.model_validate(created_user)
 
     # ── Login ──
@@ -47,7 +56,8 @@ class AuthService:
                 detail="Невірна електронна пошта або пароль",
             )
 
-        if not pwd_context.verify(data.password, user.password_hash):
+        is_valid = await to_thread(pwd_context.verify, data.password, user.password_hash)
+        if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Невірна електронна пошта або пароль",

@@ -2,10 +2,11 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/estro"
+    DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    DEBUG_SQL: bool = False
 
     class Config:
         env_file = ".env"
