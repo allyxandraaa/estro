@@ -1,8 +1,8 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -27,13 +27,21 @@ def _get_current_user_id(
         )
         user_id = payload.get("sub")
         if not user_id:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Невалідний токен")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Невалідний токен",
+            )
         return UUID(user_id)
     except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Невалідний токен")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Невалідний токен",
+        )
 
 
-def _get_onboarding_service(session: AsyncSession = Depends(get_session)) -> OnboardingService:
+def _get_onboarding_service(
+    session: AsyncSession = Depends(get_session),
+) -> OnboardingService:
     repository = UserRepository(session)
     return OnboardingService(repository)
 
@@ -47,5 +55,8 @@ async def onboarding(
     try:
         await service.save_onboarding(user_id=user_id, data=data)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Користувача не знайдено")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Користувача не знайдено",
+        )
     return {"message": "Онбординг завершено успішно"}

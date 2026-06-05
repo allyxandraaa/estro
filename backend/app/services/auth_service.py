@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from app.config import settings
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
-from app.schemas.auth import RegisterRequest, RegisterResponse, LoginRequest, TokenResponse
+from app.schemas.auth import LoginRequest, RegisterRequest, RegisterResponse, TokenResponse
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
@@ -17,8 +17,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds
 class AuthService:
     def __init__(self, user_repository: UserRepository):
         self._user_repo = user_repository
-
-    # ── Register ──
 
     async def register(self, data: RegisterRequest) -> RegisterResponse:
         existing = await self._user_repo.get_by_email(data.email)
@@ -37,15 +35,13 @@ class AuthService:
 
         try:
             created_user = await self._user_repo.create(user)
-        except IntegrityError as exc:
+        except IntegrityError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Користувач із такою електронною поштою вже існує",
             ) from None
 
         return RegisterResponse.model_validate(created_user)
-
-    # ── Login ──
 
     async def login(self, data: LoginRequest) -> TokenResponse:
         user = await self._user_repo.get_by_email(data.email)
@@ -68,8 +64,6 @@ class AuthService:
             access_token=access_token,
             needs_onboarding=user.average_cycle_length is None,
         )
-
-    # ── JWT ──
 
     @staticmethod
     def _create_access_token(subject: str) -> str:

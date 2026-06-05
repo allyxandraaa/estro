@@ -4,8 +4,6 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
-# ── Register ──
-
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
@@ -25,8 +23,6 @@ class RegisterResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
-
-# ── Login ──
 
 class LoginRequest(BaseModel):
     email: EmailStr
