@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional
 
-from sqlalchemy import String, Integer, func
+from sqlalchemy import String, Integer, Date, func
 from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +21,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     average_cycle_length: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     average_period_length: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_period_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )

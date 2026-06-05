@@ -64,7 +64,10 @@ class AuthService:
             )
 
         access_token = self._create_access_token(subject=str(user.id))
-        return TokenResponse(access_token=access_token)
+        return TokenResponse(
+            access_token=access_token,
+            needs_onboarding=user.average_cycle_length is None,
+        )
 
     # ── JWT ──
 
