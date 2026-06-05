@@ -1,7 +1,6 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
-from app.controllers import auth_router
+from app.controllers import auth_router, onboarding_router
 
 app = FastAPI(
     title="Estro API",
@@ -9,15 +8,8 @@ app = FastAPI(
     version="0.1.0",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
-)
-
 app.include_router(auth_router)
+app.include_router(onboarding_router)
 
 
 @app.get("/health")
