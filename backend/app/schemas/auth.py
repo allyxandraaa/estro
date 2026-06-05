@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ── Register ──
@@ -9,6 +9,13 @@ from pydantic import BaseModel, EmailStr, Field
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Пароль не може складатися лише з пробілів")
+        return v
 
 
 class RegisterResponse(BaseModel):
@@ -29,3 +36,4 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    needs_onboarding: bool = False

@@ -17,6 +17,12 @@ const routes = [
     meta: { guestOnly: true, title: 'Реєстрація' },
   },
   {
+    path: '/onboarding',
+    name: 'onboarding',
+    component: () => import('../views/OnboardingView.vue'),
+    meta: { requiresAuth: true, title: 'Налаштування' },
+  },
+  {
     path: '/',
     name: 'home',
     component: () => import('../views/HomeView.vue'),

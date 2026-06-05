@@ -26,7 +26,7 @@ def upgrade() -> None:
     sa.Column('password_hash', sa.String(length=255), nullable=False),
     sa.Column('average_cycle_length', sa.Integer(), nullable=True),
     sa.Column('average_period_length', sa.Integer(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('created_at', sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)

@@ -30,12 +30,19 @@ class UserRepository:
         await self._session.refresh(user)
         return user
 
-    async def update_onboarding(self, user_id: UUID, cycle_length: int, period_length: int) -> User | None:
+    async def update_onboarding(
+        self,
+        user_id: UUID,
+        cycle_length: int,
+        period_length: int,
+        last_period_date=None,
+    ) -> User | None:
         user = await self.get_by_id(user_id)
         if not user:
             return None
         user.average_cycle_length = cycle_length
         user.average_period_length = period_length
+        user.last_period_date = last_period_date
         try:
             await self._session.commit()
         except Exception:

@@ -19,6 +19,7 @@ class OnboardingService:
             user_id=user_id,
             cycle_length=cycle_length,
             period_length=period_length,
+            last_period_date=data.last_period_date,
         )
 
         if not user:

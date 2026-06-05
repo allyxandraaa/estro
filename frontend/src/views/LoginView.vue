@@ -15,8 +15,8 @@ async function handleSubmit() {
   submitting.value = true
 
   try {
-    await auth.login({ email: form.email, password: form.password })
-    router.push({ name: 'home' })
+    const result = await auth.login({ email: form.email, password: form.password })
+    router.push({ name: result?.needs_onboarding ? 'onboarding' : 'home' })
   } catch (err) {
     errorMessage.value = err.message || 'Не вдалося увійти. Спробуйте ще раз.'
   } finally {
