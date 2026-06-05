@@ -24,27 +24,30 @@ function extractMessage(error) {
   const detail = error.response?.data?.detail
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail) && detail.length > 0) return friendlyValidation(detail[0])
-  return error.response?.data?.message
-    || error.response?.data?.error
-    || 'Щось пішло не так. Спробуйте ще раз.'
+  return (
+    error.response?.data?.message ||
+    error.response?.data?.error ||
+    'Щось пішло не так. Спробуйте ще раз.'
+  )
 }
 
 const FIELD_NAMES = {
-  cycle_length:     'Тривалість циклу',
-  period_length:    'Тривалість менструації',
+  cycle_length: 'Тривалість циклу',
+  period_length: 'Тривалість менструації',
   last_period_date: 'Дата останньої менструації',
-  email:            'Пошта',
-  password:         'Пароль',
+  email: 'Пошта',
+  password: 'Пароль',
 }
 
 const TYPE_MESSAGES = {
-  'missing':                    "обов'язкове поле",
-  'string_too_short':           'занадто коротке',
-  'string_too_long':            'занадто довге',
-  'greater_than_equal':         'занадто мале значення',
-  'less_than_equal':            'занадто велике значення',
-  'date_from_datetime_parsing': 'введіть коректну дату',
-  'value_error.email':          'введіть коректну електронну пошту',
+  missing: "обов'язкове поле",
+  string_too_short: 'занадто коротке',
+  string_too_long: 'занадто довге',
+  greater_than_equal: 'занадто мале значення',
+  less_than_equal: 'занадто велике значення',
+  date_from_datetime_parsing: 'введіть коректну дату',
+  value_error: 'перевірте значення',
+  'value_error.email': 'введіть коректну електронну пошту',
 }
 
 function friendlyValidation(err) {
