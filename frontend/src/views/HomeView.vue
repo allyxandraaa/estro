@@ -124,9 +124,15 @@ function updateScales() {
   const cullLeft  = scrollLeft - INFLUENCE
   const cullRight = scrollLeft + clientWidth + INFLUENCE
   const cells = track.children
-  for (let i = 0; i < cells.length; i++) {
+
+  const startIdx = Math.max(0, Math.floor((cullLeft - clientWidth / 2) / CELL_W))
+  const endIdx = Math.min(
+    cells.length - 1,
+    Math.ceil((cullRight - clientWidth / 2) / CELL_W),
+  )
+
+  for (let i = startIdx; i <= endIdx; i++) {
     const cellCenter = clientWidth / 2 + i * CELL_W
-    if (cellCenter < cullLeft || cellCenter > cullRight) continue
     const dist  = Math.abs(cellCenter - viewCenterPx)
     const t     = Math.min(dist / INFLUENCE, 1)
     const sz    = CIRC_SMALL + (CIRC_BIG - CIRC_SMALL) * (1 - t)
@@ -203,6 +209,17 @@ function onTrackScroll() {
     maybeExtendForward()
     backwardTimer = setTimeout(maybeExtendBackward, 50)
   }, 60)
+}
+
+function onTimelineWheel(e) {
+  const track = trackRef.value
+  if (!track) return
+  e.preventDefault()
+
+  let delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+  if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 24
+  if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) delta *= track.clientWidth
+  track.scrollLeft += delta
 }
 
 // scrollTo without snap interference; after scroll: extend if needed
@@ -341,6 +358,7 @@ async function confirmMenstruation() {
 }
 
 function handleSymptoms()      { router.push({ name: 'symptoms'      }).catch(() => {}) }
+function handleCalendar()      { router.push({ name: 'home'          }).catch(() => {}) }
 function handleNotifications() { router.push({ name: 'notifications' }).catch(() => {}) }
 function handleProfile()       { router.push({ name: 'profile'       }).catch(() => {}) }
 function doLogout()            { logout(); router.push({ name: 'login' }) }
@@ -401,7 +419,7 @@ onBeforeUnmount(() => {
     <nav class="top-nav">
       <img class="brand" :src="logoUrl" alt="Estro" @click="doLogout" title="Вийти" />
       <div class="nav-btns">
-        <button class="nav-btn nav-btn--filled">До календаря</button>
+        <button class="nav-btn nav-btn--filled nav-btn--active" aria-current="page" @click="handleCalendar">До календаря</button>
         <button class="nav-btn nav-btn--outline" @click="handleNotifications">Сповіщення</button>
         <button class="nav-btn nav-btn--filled"  @click="handleProfile">Профіль</button>
       </div>
@@ -430,6 +448,7 @@ onBeforeUnmount(() => {
            ref="trackRef"
            :class="{ 'is-dragging': drag.active, 'is-picking': pickingMenstruation }"
            @scroll.passive="onTrackScroll"
+           @wheel="onTimelineWheel"
            @mousedown="onDragStart"
            @mousemove="onDragMove"
            @mouseup="onDragEnd">
@@ -577,6 +596,7 @@ onBeforeUnmount(() => {
 .day-cell {
   flex: 0 0 200px; display: flex; flex-direction: column;
   align-items: center; gap: 10px; user-select: none;
+  contain: layout paint style;
 }
 
 /* ── Circle — two-line label ── */
@@ -586,6 +606,7 @@ onBeforeUnmount(() => {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 4px;
   flex-shrink: 0; will-change: transform; transform-origin: center center;
+  backface-visibility: hidden;
   transition: background .2s, border-color .2s;
 }
 .dc-num {

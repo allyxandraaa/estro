@@ -19,6 +19,7 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     id: uuid.UUID
     email: str
+    name: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

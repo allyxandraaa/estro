@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/users", tags=["Onboarding"])
 bearer_scheme = HTTPBearer()
 
 
-def _get_current_user_id(
+def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> UUID:
     try:
@@ -49,7 +49,7 @@ def _get_onboarding_service(
 @router.post("/onboarding", status_code=status.HTTP_200_OK)
 async def onboarding(
     data: OnboardingRequest,
-    user_id: UUID = Depends(_get_current_user_id),
+    user_id: UUID = Depends(get_current_user_id),
     service: OnboardingService = Depends(_get_onboarding_service),
 ):
     try:
