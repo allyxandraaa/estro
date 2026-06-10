@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   density: { type: Number, default: 24 },
@@ -8,6 +8,7 @@ const props = defineProps({
   showBonds: { type: Boolean, default: true },
   palette: { type: Array, default: () => ['ink', 'moss'] },
   intensity: { type: Number, default: 0.7 },
+  frozen:    { type: Boolean, default: false },
 })
 
 const PALETTE = {
@@ -227,6 +228,16 @@ function render(now) {
 
   rafId = requestAnimationFrame(render)
 }
+
+watch(() => props.frozen, (f) => {
+  if (f) {
+    cancelAnimationFrame(rafId)
+    rafId = 0
+  } else if (!rafId) {
+    t0 = performance.now()
+    rafId = requestAnimationFrame(render)
+  }
+})
 
 onMounted(() => {
   init()
