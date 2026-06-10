@@ -58,3 +58,16 @@ class UserRepository:
             await self._session.rollback()
             raise
         return result.scalar_one_or_none()
+
+    async def update_fields(self, user_id: UUID, values: dict) -> User | None:
+        if not values:
+            return await self.get_by_id(user_id)
+
+        stmt = update(User).where(User.id == user_id).values(**values).returning(User)
+        try:
+            result = await self._session.execute(stmt)
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+        return result.scalar_one_or_none()

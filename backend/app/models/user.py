@@ -18,6 +18,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(
         String(255), unique=True, index=True, nullable=False
     )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     average_cycle_length: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     average_period_length: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

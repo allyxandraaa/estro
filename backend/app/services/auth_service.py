@@ -10,6 +10,7 @@ from app.config import settings
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import LoginRequest, RegisterRequest, RegisterResponse, TokenResponse
+from app.utils.profile import derive_name_from_email
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
@@ -30,6 +31,7 @@ class AuthService:
 
         user = User(
             email=data.email,
+            name=derive_name_from_email(data.email),
             password_hash=password_hash,
         )
 
@@ -62,7 +64,11 @@ class AuthService:
         access_token = self._create_access_token(subject=str(user.id))
         return TokenResponse(
             access_token=access_token,
-            needs_onboarding=user.average_cycle_length is None,
+            needs_onboarding=(
+                user.average_cycle_length is None
+                or user.average_period_length is None
+                or user.last_period_date is None
+            ),
         )
 
     @staticmethod

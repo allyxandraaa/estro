@@ -34,7 +34,10 @@ function extractMessage(error) {
 const FIELD_NAMES = {
   cycle_length: 'Тривалість циклу',
   period_length: 'Тривалість менструації',
+  average_cycle_length: 'Середня тривалість циклу',
+  average_period_length: 'Середня тривалість менструації',
   last_period_date: 'Дата останньої менструації',
+  name: "Ім'я",
   email: 'Пошта',
   password: 'Пароль',
 }

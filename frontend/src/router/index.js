@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { isAuthenticated } from '../composables/useAuth.js'
+import { clearToken } from '../api/auth-storage.js'
+import { getProfile } from '../api/profile.js'
 
 const BRAND = 'Estro'
 
@@ -28,6 +30,12 @@ const routes = [
     component: () => import('../views/HomeView.vue'),
     meta: { requiresAuth: true, title: 'Головна' },
   },
+  {
+    path: '/profile',
+    name: 'profile',
+    component: () => import('../views/ProfileView.vue'),
+    meta: { requiresAuth: true, title: 'Профіль' },
+  },
   { path: '/:pathMatch(.*)*', redirect: '/login' },
 ]
 
@@ -36,10 +44,30 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to) => {
+async function hasActiveSession() {
+  if (!isAuthenticated()) return false
+  try {
+    await getProfile()
+    return true
+  } catch {
+    clearToken()
+    return false
+  }
+}
+
+router.beforeEach(async (to) => {
   const authed = isAuthenticated()
   if (to.meta.requiresAuth && !authed) return { name: 'login' }
-  if (to.meta.guestOnly && authed) return { name: 'home' }
+
+  if (to.meta.requiresAuth) {
+    const active = await hasActiveSession()
+    if (!active) return { name: 'login' }
+  }
+
+  if (to.meta.guestOnly && authed) {
+    const active = await hasActiveSession()
+    if (active) return { name: 'home' }
+  }
 })
 
 router.afterEach((to) => {
