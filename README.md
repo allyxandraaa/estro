@@ -28,6 +28,7 @@
 ```
 estro/
 ├── frontend/            # Vue.js застосунок
+│   ├── nginx.conf       # конфігурація для production
 │   └── Dockerfile
 ├── backend/             # FastAPI сервер
 │   ├── alembic/         # міграції бази даних
@@ -46,15 +47,30 @@ estro/
 SECRET_KEY=your-secret-key
 ```
 
+### Режим розробки
+
+З гарячим перезавантаженням — зміни у файлах одразу видно в браузері без перезбірки:
+
 ```bash
-# перший запуск — збирає образи і стартує всі три контейнери
-docker compose up --build
+docker compose --profile dev up --build
+```
 
-# наступні запуски
-docker compose up
+### Production
 
-# зупинка (з -v також видаляє базу даних)
+Оптимізований збірений бандл, роздається через nginx:
+
+```bash
+docker compose --profile prod up --build
+```
+
+### Зупинка
+
+```bash
+# зупинити контейнери
 docker compose down
+
+# зупинити і видалити базу даних
+docker compose down -v
 ```
 
 Після запуску застосунок доступний на http://localhost:5173, документація API — на http://localhost:3000/docs.

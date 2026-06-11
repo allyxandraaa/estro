@@ -8,8 +8,7 @@ import logoUrl from '../assets/logo.svg'
 const router = useRouter()
 const { logout } = useAuth()
 
-const _today   = new Date()
-const todayStr = _today.toISOString().split('T')[0]
+const _today = new Date()
 
 const CELL_W     = 200
 const CIRC_BIG   = 174
@@ -24,8 +23,9 @@ const phaseSubtitle       = ref('')
 const activeCycle         = ref(null)
 const errorMsg            = ref('')
 const trackRef            = ref(null)
-const pickingMenstruation = ref(false)
-const pickedDay           = ref(null)
+const pickingMode  = ref(null) // 'start' | 'end' | null
+const choosingType = ref(false)
+const pickedDay    = ref(null)
 
 const drag = reactive({ active: false, startX: 0, startLeft: 0, moved: false })
 
@@ -45,29 +45,25 @@ const WEEKDAYS     = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб']
 
 const monthLabel = computed(() => MONTHS[viewMonth.value - 1] + ' ' + viewYear.value)
 
-function getMockPhase() {
-  const d = _today.getDate()
-  if (d <= 5)   return 'Менструальна фаза'
-  if (d <= 13)  return 'Фолікулярна фаза'
-  if (d === 14) return 'Овуляція'
-  return 'Лютеальна фаза'
-}
-function getMockSubtitle() {
-  const d = _today.getDate()
-  if (d <= 5)   return 'Час для відпочинку і самопіклування. Рівень енергії знижений — це нормально.'
-  if (d <= 13)  return 'Рівень естрогену зростає, ти відчуваєш більше сил і натхнення.'
-  if (d === 14) return 'Пік фертильності. Гарний момент для нових планів та активних дій.'
-  return 'Тіло готується до наступного циклу. Зверни увагу на сон та харчування.'
-}
+const hasActivePeriod = computed(() => allDays.value.some(d => d.is_menstruation))
+
+const pickingHint = computed(() => {
+  if (!pickingMode.value) return ''
+  if (pickedDay.value) return 'Натисніть «Підтвердити» або оберіть інший день'
+  if (pickingMode.value === 'start') return 'Оберіть перший день місячних'
+  return 'Оберіть останній день місячних'
+})
+
 
 function buildLocalDays(month, year) {
   const now   = new Date()
   const count = new Date(year, month, 0).getDate()
   return Array.from({ length: count }, (_, i) => {
-    const d   = new Date(year, month - 1, i + 1)
-    const num = i + 1
+    const d       = new Date(year, month - 1, i + 1)
+    const num     = i + 1
+    const dateStr = year + '-' + String(month).padStart(2,'0') + '-' + String(num).padStart(2,'0')
     return {
-      date:                      year + '-' + String(month).padStart(2,'0') + '-' + String(num).padStart(2,'0'),
+      date:                      dateStr,
       day_of_month:              num,
       weekday:                   WEEKDAYS[d.getDay()],
       mon:                       MONTHS_SHORT[d.getMonth()],
@@ -98,22 +94,6 @@ async function fetchMonthData(m, y) {
     const data = result?.days ? result : (result?.data ?? {})
     if (data.days) mergeApiDays(data.days)
   } catch { /* graceful */ }
-}
-
-function addMockMarks() {
-  const m = _today.getMonth() + 1, y = _today.getFullYear()
-  let nm = m + 1, ny = y
-  if (nm > 12) { nm = 1; ny++ }
-  allDays.value = allDays.value.map(d => {
-    if (d.month === m && d.year === y) {
-      const day = d.day_of_month
-      return { ...d, is_menstruation: day >= 1 && day <= 5, is_ovulation_predicted: day === 14 }
-    }
-    if (d.month === nm && d.year === ny) {
-      return { ...d, is_menstruation_predicted: d.day_of_month >= 27 }
-    }
-    return d
-  })
 }
 
 function updateScales() {
@@ -319,17 +299,31 @@ function onDragMove(e) {
 function onDragEnd() { drag.active = false }
 
 // ── Вибір дня менструації прямо в таймлайні ──────
-function enterPickingMode() {
+function enterChooseMode() {
   pickedDay.value = null
-  pickingMenstruation.value = true
+  choosingType.value = true
 }
+
+function enterStartMode() {
+  choosingType.value = false
+  pickedDay.value = null
+  pickingMode.value = 'start'
+}
+
+function enterEndMode() {
+  choosingType.value = false
+  pickedDay.value = null
+  pickingMode.value = 'end'
+}
+
 function cancelPickingMode() {
-  pickingMenstruation.value = false
+  choosingType.value = false
+  pickingMode.value = null
   pickedDay.value = null
 }
+
 function onDayClick(day) {
-  if (drag.moved) return  // ignore drag-end pseudo-clicks
-  // Always snap to center
+  if (drag.moved) return
   const idx = allDays.value.findIndex(d => d.date === day.date)
   if (idx >= 0 && trackRef.value) {
     clearTimeout(snapTimer)
@@ -337,24 +331,30 @@ function onDayClick(day) {
     trackRef.value.scrollTo({ left: idx * CELL_W, behavior: 'smooth' })
     setTimeout(() => { isSnapping = false; updateMonthLabel() }, 600)
   }
-  // Select for menstruation if in picking mode
-  if (pickingMenstruation.value) {
-    pickedDay.value = day.date
-  }
+  if (!pickingMode.value) return
+  if (pickingMode.value === 'end' && !day.is_menstruation) return
+  pickedDay.value = day.date
 }
-async function confirmMenstruation() {
+
+async function confirmStart() {
   if (!pickedDay.value) return
-  pickingMenstruation.value = false
-  errorMsg.value = ''
   const date = pickedDay.value
+  pickingMode.value = null
   pickedDay.value = null
+  errorMsg.value = ''
   try {
     await startCycle(date)
     await loadCalendar()
-  } catch (e) {
-    errorMsg.value = e.response?.data?.detail || e.message || 'Щось пішло не так'
-    setTimeout(() => { errorMsg.value = '' }, 4000)
+  } catch {
+    errorMsg.value = 'Не вдалося зберегти. Перевірте з\'єднання.'
   }
+}
+
+async function confirmEnd() {
+  if (!pickedDay.value) return
+  pickingMode.value = null
+  pickedDay.value = null
+  // TODO: потребує ендпоінту POST /api/cycles/end на бекенді
 }
 
 function handleSymptoms()      { router.push({ name: 'symptoms'      }).catch(() => {}) }
@@ -373,7 +373,6 @@ async function loadCalendar() {
     days.push(...buildLocalDays(m, y))
   }
   allDays.value = days
-  addMockMarks()
 
   const cm = today.getMonth() + 1, cy = today.getFullYear()
   fetchedMonths.add(cy + '-' + cm)
@@ -385,8 +384,7 @@ async function loadCalendar() {
     if (data.active_cycle != null) activeCycle.value   = data.active_cycle
     if (data.days)                 mergeApiDays(data.days)
   } catch {
-    currentPhase.value  = getMockPhase()
-    phaseSubtitle.value = getMockSubtitle()
+    errorMsg.value = 'Дані недоступні, перевірте з\'єднання.'
   }
 
   await nextTick()
@@ -434,8 +432,8 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Picking mode hint — завжди займає місце, щоб layout не стрибав -->
-    <div class="picking-hint" :class="{ 'picking-hint--on': pickingMenstruation }">
-      {{ pickedDay ? 'Натисніть «Підтвердити» або оберіть інший день' : 'Натисніть на день початку менструації' }}
+    <div class="picking-hint" :class="{ 'picking-hint--on': !!pickingMode }">
+      {{ pickingHint }}
     </div>
 
     <div class="timeline-wrap">
@@ -446,7 +444,7 @@ onBeforeUnmount(() => {
 
       <div class="timeline-track"
            ref="trackRef"
-           :class="{ 'is-dragging': drag.active, 'is-picking': pickingMenstruation }"
+           :class="{ 'is-dragging': drag.active, 'is-picking': !!pickingMode }"
            @scroll.passive="onTrackScroll"
            @wheel="onTimelineWheel"
            @mousedown="onDragStart"
@@ -456,7 +454,8 @@ onBeforeUnmount(() => {
              class="day-cell"
              :class="{
                'day-cell--today':  day.is_today,
-               'day-cell--picked': pickingMenstruation && day.date === pickedDay,
+               'day-cell--picked': !!pickingMode && day.date === pickedDay,
+               'day-cell--muted':  pickingMode === 'end' && !day.is_menstruation,
              }"
              @click="onDayClick(day)">
           <div class="day-circle">
@@ -498,23 +497,28 @@ onBeforeUnmount(() => {
     <p v-if="errorMsg" class="err" role="alert">{{ errorMsg }}</p>
 
     <!-- Normal actions -->
-    <div v-if="!pickingMenstruation" class="actions">
-      <button class="btn btn--filled"
-              :class="{ 'btn--done': activeCycle }"
-              :disabled="!!activeCycle"
-              @click="enterPickingMode">
-        {{ activeCycle ? 'Менструацію відмічено' : 'Відмітити менструацію' }}
-      </button>
-      <button class="btn btn--outline" @click="handleSymptoms">Відмітити симптоми</button>
+    <div v-if="!choosingType && !pickingMode" class="actions">
+      <button class="btn btn--filled" @click="enterChooseMode">Відмітити менструацію</button>
+      <button class="btn btn--outline" @click="handleSymptoms">Симптоми</button>
+    </div>
+
+    <!-- Choose: start or end -->
+    <div v-else-if="choosingType" class="actions">
+      <button class="btn btn--outline" @click="cancelPickingMode">Скасувати</button>
+      <button class="btn btn--filled" @click="enterStartMode">Початок</button>
+      <button class="btn btn--outline" :disabled="!hasActivePeriod" @click="enterEndMode">Кінець</button>
     </div>
 
     <!-- Picking mode actions -->
     <div v-else class="actions picking-actions">
       <button class="btn btn--outline" @click="cancelPickingMode">Скасувати</button>
-      <button class="btn btn--menstruation"
-              :disabled="!pickedDay"
-              @click="confirmMenstruation">
-        Підтвердити
+      <button v-if="pickingMode === 'start'" class="btn btn--menstruation"
+              :disabled="!pickedDay" @click="confirmStart">
+        Підтвердити початок
+      </button>
+      <button v-else class="btn btn--menstruation"
+              :disabled="!pickedDay" @click="confirmEnd">
+        Підтвердити кінець
       </button>
     </div>
   </div>
@@ -627,6 +631,10 @@ onBeforeUnmount(() => {
 .day-cell--picked .day-circle          { background: #D50000 !important; border-color: #D50000 !important; }
 .day-cell--picked .dc-num,
 .day-cell--picked .dc-sub              { color: #fff !important; }
+
+/* end-mode: не-менструальні дні приглушені */
+.day-cell--muted                       { pointer-events: none; }
+.day-cell--muted .day-circle           { opacity: 0.22; }
 
 .star-row {
   height: 26px; display: flex; align-items: center; justify-content: center; gap: 4px;
