@@ -2,7 +2,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth.js'
-import { getCalendarView, startCycle } from '../api/cycles.js'
+import { getCalendarView, startCycle, endCycle } from '../api/cycles.js'
 import logoUrl from '../assets/logo.svg'
 
 const router = useRouter()
@@ -20,8 +20,12 @@ const viewMonth           = ref(_today.getMonth() + 1)
 const viewYear            = ref(_today.getFullYear())
 const currentPhase        = ref('')
 const phaseSubtitle       = ref('')
+const todayPhase          = ref('')
+const todaySubtitle       = ref('')
+const centeredDay         = ref(null)
 const activeCycle         = ref(null)
 const errorMsg            = ref('')
+const dataLoaded          = ref(false)
 const trackRef            = ref(null)
 const pickingMode  = ref(null) // 'start' | 'end' | null
 const choosingType = ref(false)
@@ -71,6 +75,7 @@ function buildLocalDays(month, year) {
       is_menstruation:           false,
       is_menstruation_predicted: false,
       is_ovulation_predicted:    false,
+      is_fertile_window:         false,
       is_today:                  d.toDateString() === now.toDateString(),
     }
   })
@@ -122,6 +127,75 @@ function updateScales() {
   }
 }
 
+function _daysWord(n) {
+  const mod100 = n % 100, mod10 = n % 10
+  if (mod100 >= 11 && mod100 <= 19) return 'днів'
+  if (mod10 === 1) return 'день'
+  if (mod10 >= 2 && mod10 <= 4) return 'дні'
+  return 'днів'
+}
+
+function _phaseForDay(day, idx) {
+  if (!dataLoaded.value) return
+
+  if (day.is_today) {
+    currentPhase.value  = todayPhase.value
+    phaseSubtitle.value = todaySubtitle.value
+    return
+  }
+  if (day.is_menstruation) {
+    currentPhase.value  = 'Менструальна фаза'
+    phaseSubtitle.value = 'Реальна менструація'
+    return
+  }
+  if (day.is_menstruation_predicted) {
+    currentPhase.value  = 'Менструальна фаза'
+    phaseSubtitle.value = 'Прогнозована менструація'
+    return
+  }
+  if (day.is_ovulation_predicted) {
+    currentPhase.value  = 'Овуляція'
+    phaseSubtitle.value = 'Найвища ймовірність завагітніти'
+    return
+  }
+  if (day.is_fertile_window) {
+    currentPhase.value  = 'Фертильне вікно'
+    phaseSubtitle.value = 'Підвищена ймовірність завагітніти (метод Огіно-Кнауса)'
+    return
+  }
+
+  const days = allDays.value
+  const WINDOW = 45
+  let prevOvIdx = -1, nextOvIdx = -1, nextMenIdx = -1
+  for (let i = idx - 1; i >= Math.max(0, idx - WINDOW); i--) {
+    if (days[i].is_ovulation_predicted) { prevOvIdx = i; break }
+  }
+  for (let i = idx + 1; i < Math.min(days.length, idx + WINDOW); i++) {
+    if (days[i].is_ovulation_predicted && nextOvIdx < 0) nextOvIdx = i
+    if ((days[i].is_menstruation_predicted || days[i].is_menstruation) && nextMenIdx < 0) nextMenIdx = i
+  }
+
+  if (nextOvIdx >= 0 && (prevOvIdx < 0 || nextOvIdx < (nextMenIdx < 0 ? Infinity : nextMenIdx))) {
+    const d = nextOvIdx - idx
+    currentPhase.value  = 'Фолікулярна фаза'
+    phaseSubtitle.value = d === 1
+      ? 'Завтра овуляція — фертильний пік'
+      : `До овуляції ${d} ${_daysWord(d)} — рівень енергії зростає`
+    return
+  }
+  if (prevOvIdx >= 0) {
+    const d = nextMenIdx >= 0 ? nextMenIdx - idx : null
+    currentPhase.value  = 'Лютеальна фаза'
+    phaseSubtitle.value = d
+      ? `До менструації ${d} ${_daysWord(d)} — слухай своє тіло`
+      : 'Організм готується до наступного циклу'
+    return
+  }
+
+  currentPhase.value  = ''
+  phaseSubtitle.value = ''
+}
+
 function updateMonthLabel() {
   const track = trackRef.value
   if (!track) return
@@ -130,6 +204,8 @@ function updateMonthLabel() {
     const d = allDays.value[centerIdx]
     viewMonth.value = d.month
     viewYear.value  = d.year
+    centeredDay.value = d
+    _phaseForDay(d, centerIdx)
   }
 }
 
@@ -339,6 +415,47 @@ function onDayClick(day) {
   pickedDay.value = day.date
 }
 
+async function refreshData() {
+  const today = new Date()
+  const cm = today.getMonth() + 1, cy = today.getFullYear()
+
+  // Зкидаємо кеш щоб дозволити повторний фетч
+  const monthKeys = [...new Set(allDays.value.map(d => `${d.year}-${d.month}`))]
+  monthKeys.forEach(k => fetchedMonths.delete(k))
+
+  // Оновлюємо поточний місяць — він несе phase/active_cycle
+  fetchedMonths.add(`${cy}-${cm}`)
+  try {
+    const result = await getCalendarView(cm, cy)
+    const data = result?.days ? result : (result?.data ?? {})
+    if (data.current_phase) {
+      currentPhase.value = data.current_phase
+      todayPhase.value   = data.current_phase
+    }
+    if (data.phase_subtitle) {
+      phaseSubtitle.value = data.phase_subtitle
+      todaySubtitle.value = data.phase_subtitle
+    }
+    if (data.active_cycle != null) activeCycle.value = data.active_cycle
+    if (data.days) mergeApiDays(data.days)
+  } catch {
+    errorMsg.value = 'Не вдалося оновити. Перевірте з\'єднання.'
+    return
+  }
+
+  // Решта видимих місяців — без await, фонові запити
+  for (const k of monthKeys) {
+    const [y, m] = k.split('-').map(Number)
+    if (m !== cm || y !== cy) fetchMonthData(m, y)
+  }
+
+  // Перерахуємо фазу для поточно центрованого дня
+  if (centeredDay.value) {
+    const idx = allDays.value.findIndex(d => d.date === centeredDay.value.date)
+    if (idx >= 0) _phaseForDay(allDays.value[idx], idx)
+  }
+}
+
 async function confirmStart() {
   if (!pickedDay.value) return
   const date = pickedDay.value
@@ -347,17 +464,24 @@ async function confirmStart() {
   errorMsg.value = ''
   try {
     await startCycle(date)
-    await loadCalendar()
-  } catch {
-    errorMsg.value = 'Не вдалося зберегти. Перевірте з\'єднання.'
+    await refreshData()
+  } catch (e) {
+    errorMsg.value = e.message || 'Не вдалося зберегти. Перевірте з\'єднання.'
   }
 }
 
 async function confirmEnd() {
   if (!pickedDay.value) return
+  const date = pickedDay.value
   pickingMode.value = null
   pickedDay.value = null
-  // TODO: потребує ендпоінту POST /api/cycles/end на бекенді
+  errorMsg.value = ''
+  try {
+    await endCycle(date)
+    await refreshData()
+  } catch (e) {
+    errorMsg.value = e.message || 'Не вдалося зберегти. Перевірте з\'єднання.'
+  }
 }
 
 function handleSymptoms()      { router.push({ name: 'symptoms'      }).catch(() => {}) }
@@ -382,13 +506,27 @@ async function loadCalendar() {
   try {
     const result = await getCalendarView(cm, cy)
     const data   = result?.days ? result : (result?.data ?? {})
-    if (data.current_phase)        currentPhase.value  = data.current_phase
-    if (data.phase_subtitle)       phaseSubtitle.value = data.phase_subtitle
-    if (data.active_cycle != null) activeCycle.value   = data.active_cycle
+    if (data.current_phase) {
+      currentPhase.value = data.current_phase
+      todayPhase.value   = data.current_phase
+    }
+    if (data.phase_subtitle) {
+      phaseSubtitle.value = data.phase_subtitle
+      todaySubtitle.value = data.phase_subtitle
+    }
+    if (data.active_cycle != null) activeCycle.value = data.active_cycle
     if (data.days)                 mergeApiDays(data.days)
+    dataLoaded.value = true
   } catch {
+    dataLoaded.value = true
     errorMsg.value = 'Дані недоступні, перевірте з\'єднання.'
   }
+
+  // Фетч сусідніх місяців — вони вже в allDays, але без API-даних
+  const pm = cm > 1 ? cm - 1 : 12, py = cm > 1 ? cy : cy - 1
+  const nm = cm < 12 ? cm + 1 : 1,  ny = cm < 12 ? cy : cy + 1
+  fetchMonthData(pm, py)
+  fetchMonthData(nm, ny)
 
   await nextTick()
   const todayIdx = allDays.value.findIndex(d => d.is_today)
@@ -429,9 +567,11 @@ onBeforeUnmount(() => {
     <div class="phase">
       <h1 class="phase-title">
         <em v-if="currentPhase">{{ currentPhase }}</em>
-        <span v-else class="phase-loading">…</span>
+        <span v-else-if="!dataLoaded" class="phase-loading">…</span>
+        <span v-else class="phase-no-data">Відміть свій перший цикл</span>
       </h1>
       <p class="phase-sub" v-if="phaseSubtitle">{{ phaseSubtitle }}</p>
+      <p class="phase-sub" v-else-if="dataLoaded && !currentPhase">Натисни «Відмітити менструацію», щоб розпочати</p>
     </div>
 
     <!-- Picking mode hint — завжди займає місце, щоб layout не стрибав -->
@@ -479,6 +619,12 @@ onBeforeUnmount(() => {
               <svg class="star" viewBox="0 0 37 37" fill="none">
                 <path d="M18.0774 0.0771484L19.8569 11.436L27.0774 2.48869L22.939 13.2155L33.6658 9.07715L24.7185 16.2977L36.0774 18.0771L24.7185 19.8566L33.6658 27.0771L22.939 22.9388L27.0774 33.6656L19.8569 24.7183L18.0774 36.0771L16.2979 24.7183L9.07739 33.6656L13.2158 22.9388L2.48894 27.0771L11.4363 19.8566L0.0773926 18.0771L11.4363 16.2977L2.48894 9.07715L13.2158 13.2155L9.07739 2.48869L16.2979 11.436L18.0774 0.0771484Z"
                       fill="#FF34A7" stroke="#000" stroke-width="0.5"/>
+              </svg>
+            </span>
+            <span v-if="day.is_fertile_window && !day.is_ovulation_predicted" class="star-tip" data-tip="Фертильне вікно (Огіно-Кнаус)">
+              <svg class="star" viewBox="0 0 37 37" fill="none">
+                <path d="M18.0774 0.0771484L19.8569 11.436L27.0774 2.48869L22.939 13.2155L33.6658 9.07715L24.7185 16.2977L36.0774 18.0771L24.7185 19.8566L33.6658 27.0771L22.939 22.9388L27.0774 33.6656L19.8569 24.7183L18.0774 36.0771L16.2979 24.7183L9.07739 33.6656L13.2158 22.9388L2.48894 27.0771L11.4363 19.8566L0.0773926 18.0771L11.4363 16.2977L2.48894 9.07715L13.2158 13.2155L9.07739 2.48869L16.2979 11.436L18.0774 0.0771484Z"
+                      fill="#874FFF" stroke="#000" stroke-width="0.5"/>
               </svg>
             </span>
           </div>
@@ -560,6 +706,7 @@ onBeforeUnmount(() => {
   line-height: 1.05; margin: 0 0 16px;
 }
 .phase-loading { font-style: italic; color: rgba(0,0,0,.2); }
+.phase-no-data { font-style: italic; color: rgba(0,0,0,.75); }
 .phase-sub {
   font-family: 'Geist', sans-serif; font-size: clamp(13px, 1.1vw, 16px);
   color: rgba(0,0,0,.6); margin: 0 auto; line-height: 1.5; max-width: 560px;

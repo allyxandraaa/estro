@@ -9,15 +9,10 @@ from app.database import get_session
 from app.dependencies.auth import get_current_user_id
 from app.repositories.cycle_repository import CycleRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.cycles import CalendarViewResponse, StartCycleRequest, StartCycleResponse
+from app.schemas.cycles import CalendarViewResponse, EndCycleRequest, StartCycleRequest, StartCycleResponse
 from app.services.cycle_projection_service import CycleProjectionService
-from app.services.cycle_service import CycleService
 
 router = APIRouter(prefix="/api/cycles", tags=["Cycles"])
-
-
-def _get_cycle_service(session: AsyncSession = Depends(get_session)) -> CycleService:
-    return CycleService(session)
 
 
 def _get_projection_service(session: AsyncSession = Depends(get_session)) -> CycleProjectionService:
@@ -41,7 +36,6 @@ async def get_calendar_view(
 async def start_cycle(
     body: StartCycleRequest,
     user_id: UUID = Depends(get_current_user_id),
-    service: CycleService = Depends(_get_cycle_service),
     session: AsyncSession = Depends(get_session),
 ):
     cycle_repo = CycleRepository(session)
@@ -49,16 +43,54 @@ async def start_cycle(
 
     active_cycle = await cycle_repo.get_active_cycle(user_id)
     if active_cycle:
-        if active_cycle.start_date < body.date:
-            await cycle_repo.close_cycle(active_cycle, body.date)
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Є відкритий цикл з датою початку не раніше нової дати",
-            )
+        # Будь-яка зміна дати активного циклу — корекція, а не новий цикл
+        cycle = await cycle_repo.update_start(active_cycle, body.date)
+        await user_repo.update_fields(user_id, {"last_period_date": body.date})
+        return StartCycleResponse(
+            id=str(cycle.id),
+            start_date=cycle.start_date,
+            end_date=cycle.end_date,
+        )
 
     cycle = await cycle_repo.create_cycle(user_id, body.date)
     await user_repo.update_fields(user_id, {"last_period_date": body.date})
+
+    return StartCycleResponse(
+        id=str(cycle.id),
+        start_date=cycle.start_date,
+        end_date=cycle.end_date,
+    )
+
+
+@router.post("/end", status_code=status.HTTP_200_OK, response_model=StartCycleResponse)
+async def end_cycle(
+    body: EndCycleRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+):
+    cycle_repo = CycleRepository(session)
+
+    active_cycle = await cycle_repo.get_active_cycle(user_id)
+    if not active_cycle:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Немає відкритого циклу",
+        )
+    if body.date < active_cycle.start_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Дата завершення не може бути раніше дати початку циклу",
+        )
+
+    cycle = await cycle_repo.close_cycle(active_cycle, body.date)
+
+    # Оновлюємо середню тривалість менструації з реальних даних
+    user_repo = UserRepository(session)
+    completed = await cycle_repo.get_last_completed_cycles(user_id, limit=6)
+    if completed:
+        lengths = [(c.end_date - c.start_date).days + 1 for c in completed if c.end_date]
+        if lengths:
+            await user_repo.update_fields(user_id, {"average_period_length": round(sum(lengths) / len(lengths))})
 
     return StartCycleResponse(
         id=str(cycle.id),
