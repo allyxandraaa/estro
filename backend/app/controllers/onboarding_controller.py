@@ -1,42 +1,15 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.database import get_session
+from app.dependencies.auth import get_current_user_id
 from app.repositories.user_repository import UserRepository
 from app.schemas.onboarding import OnboardingRequest
 from app.services.onboarding_service import OnboardingService
 
 router = APIRouter(prefix="/api/users", tags=["Onboarding"])
-
-bearer_scheme = HTTPBearer()
-
-
-def get_current_user_id(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> UUID:
-    try:
-        payload = jwt.decode(
-            credentials.credentials,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Невалідний токен",
-            )
-        return UUID(user_id)
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Невалідний токен",
-        )
 
 
 def _get_onboarding_service(
