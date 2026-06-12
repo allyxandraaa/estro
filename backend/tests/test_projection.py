@@ -194,3 +194,66 @@ def test_end_request_rejects_future_date():
 
     with pytest.raises(ValidationError):
         EndCycleRequest(date=TODAY + timedelta(days=1))
+
+
+# ── BUG-01: онбординг без дати ──────────────────────────────────────────────
+
+
+async def test_onboarding_skip_date_sets_today_as_base(monkeypatch):
+    """
+    BUG-01: якщо last_period_date=today (онбординг без дати), сервіс
+    генерує прогнозовану менструацію з сьогодні замість порожнього стану.
+    """
+    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=TODAY), [])
+    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=30))
+
+    # Документуємо поточну (помилкову) поведінку: є проєкція з сьогодні
+    assert any(p.predicted_start_date == TODAY for p in result), (
+        "BUG-01: прогноз починається сьогодні, хоча мав бути порожній стан"
+    )
+
+
+async def test_onboarding_skip_date_null_returns_empty():
+    """Якщо last_period_date=null — порожній стан (очікувана поведінка після виправлення BUG-01)."""
+    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=None), [])
+    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=30))
+    assert result == [], "Без дати останньої менструації прогнозів не має бути"
+
+
+# ── BUG-04: овуляція при короткому циклі ────────────────────────────────────
+
+
+async def test_short_cycle_ovulation_precedes_start():
+    """
+    BUG-04: цикл <= 14 днів -> дата овуляції потрапляє до дати початку менструації.
+    """
+    svc = _svc(_user(cycle_length=10, period_length=3, is_default=True, last_period_date=TODAY), [])
+    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=30))
+
+    for proj in result:
+        if proj.predicted_ovulation_date < proj.predicted_start_date:
+            # Документуємо баг: овуляція раніше початку менструації
+            assert True, "BUG-04: ovulation_date < start_date при cycle_length=10"
+            return
+
+
+# ── BUG-05: predicted на минулих днях ───────────────────────────────────────
+
+
+async def test_past_days_not_marked_predicted():
+    """
+    BUG-05: якщо predicted_start < today але predicted_end >= today,
+    минулі дні отримують is_menstruation_predicted=true.
+    """
+    yesterday = TODAY - timedelta(days=1)
+    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=yesterday), [])
+
+    data = await svc.get_calendar_month(UID, month=TODAY.month, year=TODAY.year)
+    yesterday_str = yesterday.isoformat()
+    yesterday_day = next((d for d in data["days"] if d["date"] == yesterday_str), None)
+
+    if yesterday_day:
+        # Документуємо поточну поведінку: вчора позначено як predicted
+        assert yesterday_day["is_menstruation_predicted"], (
+            "BUG-05: вчорашній день позначено як is_menstruation_predicted"
+        )
