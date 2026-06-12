@@ -30,7 +30,7 @@ class OnboardingService:
         if data.last_period_date is not None:
             last_period_date = data.last_period_date
         else:
-            last_period_date = date.today()
+            last_period_date = None
             is_calculated = True
 
         user = await self._repository.update_user_profile(
