@@ -19,7 +19,7 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-estro}
-      SECRET_KEY: ${SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
     ports:
       - "3000:3000"
     depends_on:
@@ -28,8 +28,12 @@ services:
     volumes:
       - ./backend:/app
 
+  # docker compose --profile dev up --build
   frontend:
-    build: ./frontend
+    profiles: [dev]
+    build:
+      context: ./frontend
+      target: dev
     environment:
       VITE_BACKEND_ORIGIN: http://backend:3000
     ports:
@@ -39,6 +43,17 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+
+  # docker compose --profile prod up --build
+  frontend-prod:
+    profiles: [prod]
+    build:
+      context: ./frontend
+      target: prod
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:
