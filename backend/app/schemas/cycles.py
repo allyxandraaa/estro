@@ -9,6 +9,7 @@ class CalendarDaySchema(BaseModel):
     is_menstruation: bool
     is_menstruation_predicted: bool
     is_ovulation_predicted: bool
+    is_fertile_window: bool = False
 
 
 class ActiveCycleSchema(BaseModel):
@@ -34,6 +35,9 @@ class StartCycleRequest(BaseModel):
         if v > date_type.today():
             raise ValueError("Дата не може бути в майбутньому")
         return v
+
+
+EndCycleRequest = StartCycleRequest
 
 
 class StartCycleResponse(BaseModel):

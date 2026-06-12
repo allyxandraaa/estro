@@ -31,6 +31,12 @@ class CycleRepository:
         await self.db.refresh(cycle)
         return cycle
 
+    async def update_start(self, cycle: Cycle, start_date: date) -> Cycle:
+        cycle.start_date = start_date
+        await self.db.commit()
+        await self.db.refresh(cycle)
+        return cycle
+
     async def get_last_completed_cycles(self, user_id: uuid.UUID, limit: int = 10) -> list[Cycle]:
         result = await self.db.execute(
             select(Cycle)
