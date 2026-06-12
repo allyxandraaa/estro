@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -43,14 +44,23 @@ async def start_cycle(
 
     active_cycle = await cycle_repo.get_active_cycle(user_id)
     if active_cycle:
-        # Будь-яка зміна дати активного циклу — корекція, а не новий цикл
-        cycle = await cycle_repo.update_start(active_cycle, body.date)
-        await user_repo.update_fields(user_id, {"last_period_date": body.date})
-        return StartCycleResponse(
-            id=str(cycle.id),
-            start_date=cycle.start_date,
-            end_date=cycle.end_date,
-        )
+        user = await user_repo.get_by_id(user_id)
+        period_length = (user.average_period_length if user else None) or 5
+        expected_end = active_cycle.start_date + timedelta(days=period_length - 1)
+
+        if body.date <= expected_end:
+            # Корекція: нова дата всередині очікуваного вікна — правимо старт
+            cycle = await cycle_repo.update_start(active_cycle, body.date)
+            await user_repo.update_fields(user_id, {"last_period_date": body.date})
+            return StartCycleResponse(
+                id=str(cycle.id),
+                start_date=cycle.start_date,
+                end_date=cycle.end_date,
+            )
+
+        # Новий цикл: закриваємо попередній із найпізнішою розумною датою
+        implied_end = min(expected_end, body.date - timedelta(days=1))
+        await cycle_repo.close_cycle(active_cycle, implied_end)
 
     cycle = await cycle_repo.create_cycle(user_id, body.date)
     await user_repo.update_fields(user_id, {"last_period_date": body.date})
