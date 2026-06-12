@@ -165,6 +165,19 @@ function _phaseForDay(day, idx) {
   }
 
   const days = allDays.value
+  // Якщо день у минулому і ще до першого відомого дня циклу — показуємо "немає даних"
+  const todayStr = new Date().toISOString().split('T')[0]
+  if (day.date < todayStr) {
+    const firstDataDay = allDays.value.find(
+      d => d.is_menstruation || d.is_menstruation_predicted || d.is_ovulation_predicted
+    )
+    if (!firstDataDay || day.date < firstDataDay.date) {
+      currentPhase.value  = 'Немає даних'
+      phaseSubtitle.value = 'Тут ще немає записів про цикли'
+      return
+    }
+  }
+
   const WINDOW = 45
   let prevOvIdx = -1, nextOvIdx = -1, nextMenIdx = -1
   for (let i = idx - 1; i >= Math.max(0, idx - WINDOW); i--) {
