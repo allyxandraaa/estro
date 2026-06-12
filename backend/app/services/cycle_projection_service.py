@@ -192,7 +192,13 @@ class CycleProjectionService:
             is_fertile_window = False
 
             for proj in projections:
-                if proj.predicted_start_date <= current_date <= proj.predicted_end_date:
+                # Якщо цикл вже закрито — беремо реальну дату кінця, а не прогнозовану
+                proj_end = proj.predicted_end_date
+                if (last_completed and last_completed.end_date
+                        and proj.predicted_start_date == last_completed.start_date):
+                    proj_end = last_completed.end_date
+
+                if proj.predicted_start_date <= current_date <= proj_end:
                     is_menstruation_predicted = True
                 if current_date == proj.predicted_ovulation_date:
                     is_ovulation_predicted = True
