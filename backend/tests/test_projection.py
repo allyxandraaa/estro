@@ -257,3 +257,30 @@ async def test_past_days_not_marked_predicted():
         assert yesterday_day["is_menstruation_predicted"], (
             "BUG-05: вчорашній день позначено як is_menstruation_predicted"
         )
+
+
+# ── 1-day period bug ────────────────────────────────────────────────────────
+
+
+async def test_one_day_period_no_phantom_predicted():
+    """Цикл тривалістю 1 день: дні після end_date не мають is_menstruation_predicted."""
+    start = TODAY - timedelta(days=1)
+    closed = _cycle(start, start)  # end_date == start_date
+
+    svc = CycleProjectionService(
+        user_repository=AsyncMock(),
+        cycle_repository=AsyncMock(),
+    )
+    svc.user_repository.get_by_id.return_value = _user(
+        cycle_length=28, period_length=5, is_default=True
+    )
+    svc.cycle_repository.get_last_completed_cycles.return_value = [closed]
+    svc.cycle_repository.get_active_cycle.return_value = None
+
+    data = await svc.get_calendar_month(UID, month=TODAY.month, year=TODAY.year)
+
+    for day in data["days"]:
+        if day["date"] > start.isoformat():
+            assert not day["is_menstruation_predicted"], (
+                f"{day['date']}: не має бути predicted після 1-денного циклу"
+            )
