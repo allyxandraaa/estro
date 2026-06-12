@@ -30,3 +30,12 @@ class CycleRepository:
         await self.db.commit()
         await self.db.refresh(cycle)
         return cycle
+
+    async def get_last_completed_cycles(self, user_id: uuid.UUID, limit: int = 10) -> list[Cycle]:
+        result = await self.db.execute(
+            select(Cycle)
+            .where(Cycle.user_id == user_id, Cycle.end_date.is_not(None))
+            .order_by(Cycle.start_date.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
