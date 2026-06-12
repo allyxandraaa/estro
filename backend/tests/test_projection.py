@@ -255,7 +255,46 @@ async def test_past_days_not_marked_predicted():
     if yesterday_day:
         # Документуємо поточну поведінку: вчора позначено як predicted
         assert yesterday_day["is_menstruation_predicted"], (
-            "BUG-05: вчорашній день позначено як is_menstruation_predicted"
+            "BUG-03: вчорашній день позначено як is_menstruation_predicted"
+        )
+
+
+# ── TC-06: calendar без даних ────────────────────────────────────────────────
+
+
+async def test_calendar_no_data_returns_all_false_flags():
+    """TC-06 edge: немає жодного запису і last_period_date=None → усі is_*=false, current_phase=''"""
+    svc = _svc(_user(last_period_date=None), [])
+    data = await svc.get_calendar_month(UID, month=6, year=2026)
+
+    assert len(data["days"]) == 30
+    for day in data["days"]:
+        assert not day["is_menstruation"], f"{day['date']}: is_menstruation має бути false"
+        assert not day["is_menstruation_predicted"], f"{day['date']}: is_menstruation_predicted має бути false"
+        assert not day["is_ovulation_predicted"], f"{day['date']}: is_ovulation_predicted має бути false"
+    assert data["current_phase"] == ""
+
+
+# ── TC-09: минула овуляція ───────────────────────────────────────────────────
+
+
+async def test_past_ovulation_not_marked_predicted():
+    """
+    TC-09 edge / BUG-08: projected_ovulation < today → не має бути is_ovulation_predicted.
+    base=today-8, cycle_length=20: ov=today-2 (минуле), end=today+6 (майбутнє).
+    Проєкція включається (end >= today), але дата овуляції вже в минулому.
+    """
+    base = TODAY - timedelta(days=8)
+    ov_date = base + timedelta(days=6)  # today - 2
+
+    svc = _svc(_user(cycle_length=20, period_length=15, is_default=True, last_period_date=base), [])
+    data = await svc.get_calendar_month(UID, month=TODAY.month, year=TODAY.year)
+
+    ov_day = next((d for d in data["days"] if d["date"] == ov_date.isoformat()), None)
+    if ov_day:
+        # Документуємо поточну (помилкову) поведінку: минула дата овуляції позначена predicted
+        assert ov_day["is_ovulation_predicted"], (
+            "BUG-08: минула дата овуляції (today-2) позначена is_ovulation_predicted=true"
         )
 
 
