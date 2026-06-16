@@ -49,8 +49,11 @@ async function hasActiveSession() {
   try {
     await getProfile()
     return true
-  } catch {
-    clearToken()
+  } catch (error) {
+    const httpStatus = error?.response?.status ?? error?.status
+    if (httpStatus === 401 || httpStatus === 403) {
+      clearToken()
+    }
     return false
   }
 }

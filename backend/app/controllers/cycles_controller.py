@@ -58,11 +58,11 @@ async def start_cycle(
                 end_date=cycle.end_date,
             )
 
-        # Новий цикл: закриваємо попередній із найпізнішою розумною датою
+        # Новий цикл: закриваємо попередній і відкриваємо новий атомарно
         implied_end = min(expected_end, body.date - timedelta(days=1))
-        await cycle_repo.close_cycle(active_cycle, implied_end)
-
-    cycle = await cycle_repo.create_cycle(user_id, body.date)
+        cycle = await cycle_repo.close_and_create_cycle(active_cycle, implied_end, user_id, body.date)
+    else:
+        cycle = await cycle_repo.create_cycle(user_id, body.date)
     await user_repo.update_fields(user_id, {"last_period_date": body.date})
 
     return StartCycleResponse(
@@ -90,6 +90,13 @@ async def end_cycle(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Дата завершення не може бути раніше дати початку циклу",
+        )
+
+    next_cycle = await cycle_repo.get_next_cycle(user_id, active_cycle.start_date)
+    if next_cycle and body.date >= next_cycle.start_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Дата завершення перекривається з наступним циклом",
         )
 
     cycle = await cycle_repo.close_cycle(active_cycle, body.date)

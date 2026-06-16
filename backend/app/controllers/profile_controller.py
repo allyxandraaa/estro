@@ -32,10 +32,16 @@ async def get_profile(
         )
 
     if not user.name:
-        user = await repository.update_fields(
+        updated = await repository.update_fields(
             user_id,
             {"name": derive_name_from_email(user.email)},
         )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Користувача для цього токена не знайдено",
+            )
+        user = updated
 
     return ProfileResponse.model_validate(user)
 

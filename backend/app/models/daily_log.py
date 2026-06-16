@@ -1,9 +1,10 @@
 import enum
 import uuid
 from datetime import date
+from decimal import Decimal
 from typing import List, Optional
 
-from sqlalchemy import Date, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Date, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,6 +45,7 @@ class AppetiteState(str, enum.Enum):
 
 class DailyLog(Base):
     __tablename__ = "daily_logs"
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_daily_logs_user_date"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -55,7 +57,7 @@ class DailyLog(Base):
 
     # Кровотеча та БТТ
     bleeding_intensity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    basal_temperature: Mapped[Optional[float]] = mapped_column(Numeric(4, 2), nullable=True)
+    basal_temperature: Mapped[Optional[Decimal]] = mapped_column(Numeric(4, 2), nullable=True)
 
     # Виділення
     discharge_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)

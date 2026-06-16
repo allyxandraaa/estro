@@ -9,19 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.daily_log import DailyLog
 
 
+_PROTECTED_KEYS = frozenset({"user_id", "date", "id"})
+
+
 class DailyLogRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def upsert(self, user_id: uuid.UUID, log_date: date, **fields: Any) -> DailyLog:
-        """
-        INSERT ... ON CONFLICT (user_id, date) DO UPDATE SET <fields>
-        Only updates the fields that were explicitly passed.
-        """
+    async def upsert(self, user_id: uuid.UUID, log_date: date, **fields: Any) -> DailyLog | None:
+        mutable = {k: v for k, v in fields.items() if k not in _PROTECTED_KEYS}
+        if not mutable:
+            return await self.get_by_date(user_id, log_date)
+
         values = {
             "user_id": user_id,
             "date": log_date,
-            **fields,
+            **mutable,
         }
 
         stmt = (
@@ -29,18 +32,14 @@ class DailyLogRepository:
             .values(**values)
             .on_conflict_do_update(
                 index_elements=["user_id", "date"],
-                set_={k: v for k, v in fields.items()},
+                set_=mutable,
             )
             .returning(DailyLog)
         )
 
-        result = await self.db.execute(stmt)
+        await self.db.execute(stmt)
         await self.db.commit()
-
-        # Fetch refreshed object
-        row = result.fetchone()
-        # Return via get_by_date to get a fully mapped ORM instance
-        return await self.get_by_date(user_id, log_date)  # type: ignore[return-value]
+        return await self.get_by_date(user_id, log_date)
 
     async def get_by_date(self, user_id: uuid.UUID, log_date: date) -> DailyLog | None:
         result = await self.db.execute(

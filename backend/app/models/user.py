@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, Integer, String, func
+from sqlalchemy import Boolean, Date, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,7 +27,7 @@ class User(Base):
         Boolean,
         nullable=False,
         default=False,
-        server_default="false",
+        server_default=text("false"),
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False

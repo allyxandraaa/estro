@@ -170,7 +170,7 @@ function collectProfileChanges() {
 async function savePendingChanges() {
   if (loading.value || !initialProfile.value) return true
   const changes = collectProfileChanges()
-  if (!changes) return false
+  if (!changes) return true
   if (Object.keys(changes).length === 0) return true
   return await saveProfile(changes)
 }
@@ -189,7 +189,9 @@ function goBack() {
 }
 
 function handleNotifications() {
-  router.push({ name: 'notifications' }).catch(() => {})
+  if (router.hasRoute('notifications')) {
+    router.push({ name: 'notifications' }).catch(() => {})
+  }
 }
 
 async function doLogout() {
