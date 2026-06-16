@@ -28,7 +28,7 @@ class CycleProjectionService:
         if not user:
             return []
 
-        completed_cycles = await self.cycle_repository.get_last_completed_cycles(user_id)
+        completed_cycles = await self.cycle_repository.get_last_completed_cycles(user_id, limit=24)
 
         # База прогнозування: активний цикл має пріоритет над завершеними
         if active_start is not None:
@@ -160,6 +160,10 @@ class CycleProjectionService:
         if next_proj.predicted_end_date < today < next_proj.predicted_ovulation_date:
             days_until_ov = (next_proj.predicted_ovulation_date - today).days
             return "Фолікулярна фаза", f"До овуляції {days_until_ov} {w(days_until_ov)} — рівень енергії зростає"
+
+        if today < next_proj.predicted_start_date:
+            days_until = (next_proj.predicted_start_date - today).days
+            return "Лютеальна фаза", f"До менструації {days_until} {w(days_until)} — слухай своє тіло"
 
         if today > next_proj.predicted_ovulation_date:
             next_start = next((p.predicted_start_date for p in projections if p.predicted_start_date > today), None)
