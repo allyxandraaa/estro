@@ -23,6 +23,7 @@ class CalendarViewResponse(BaseModel):
     current_phase: str
     phase_subtitle: str
     active_cycle: Optional[ActiveCycleSchema] = None
+    completed_cycles: list[ActiveCycleSchema] = []
 
 
 class StartCycleRequest(BaseModel):
@@ -31,8 +32,9 @@ class StartCycleRequest(BaseModel):
     @field_validator("date")
     @classmethod
     def date_not_in_future(cls, v: date) -> date:
-        from datetime import date as date_type
-        if v > date_type.today():
+        from datetime import date as date_type, timedelta
+        # +1 день буфер для користувачів у часових поясах UTC+ (сервер у UTC)
+        if v > date_type.today() + timedelta(days=1):
             raise ValueError("Дата не може бути в майбутньому")
         return v
 

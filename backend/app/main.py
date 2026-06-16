@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.controllers import auth_router, onboarding_router, profile_router, cycles_router
+from app.controllers import auth_router, onboarding_router, profile_router, cycles_router, notifications_router
 
 app = FastAPI(
     title="Estro API",
@@ -21,6 +21,7 @@ app.include_router(auth_router)
 app.include_router(onboarding_router)
 app.include_router(profile_router)
 app.include_router(cycles_router)
+app.include_router(notifications_router)
 
 
 @app.get("/health")

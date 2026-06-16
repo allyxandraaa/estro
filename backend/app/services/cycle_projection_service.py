@@ -41,24 +41,9 @@ class CycleProjectionService:
             return []
 
         # Тривалість циклу та вікно Огіно-Кнауса
-        use_ogino = False
-        min_cycle = max_cycle = 0
-
-        if user.is_calculated_default or len(completed_cycles) < 3:
-            cycle_length = user.average_cycle_length or 28
-        else:
-            sorted_cycles = sorted(completed_cycles, key=lambda c: c.start_date)
-            diffs = [
-                (sorted_cycles[i + 1].start_date - sorted_cycles[i].start_date).days
-                for i in range(len(sorted_cycles) - 1)
-            ]
-            cycle_length = round(sum(diffs) / len(diffs))
-            if len(diffs) >= 5:
-                use_ogino = True
-                min_cycle = min(diffs)
-                max_cycle = max(diffs)
-
-        period_length = user.average_period_length or 5
+        cycle_length, period_length, use_ogino, min_cycle, max_cycle = self._compute_cycle_params(
+            user, completed_cycles
+        )
         today = date.today()
 
         projections = []
@@ -92,6 +77,29 @@ class CycleProjectionService:
         return projections
 
     @staticmethod
+    def _compute_cycle_params(
+        user, completed_cycles: list
+    ) -> tuple[int, int, bool, int, int]:
+        """Повертає (cycle_length, period_length, use_ogino, min_cycle, max_cycle)."""
+        use_ogino = False
+        min_cycle = max_cycle = 0
+        if user.is_calculated_default or len(completed_cycles) < 3:
+            cycle_length = user.average_cycle_length or 28
+        else:
+            sorted_c = sorted(completed_cycles, key=lambda c: c.start_date)
+            diffs = [
+                (sorted_c[i + 1].start_date - sorted_c[i].start_date).days
+                for i in range(len(sorted_c) - 1)
+            ]
+            cycle_length = round(sum(diffs) / len(diffs))
+            if len(diffs) >= 5:
+                use_ogino = True
+                min_cycle = min(diffs)
+                max_cycle = max(diffs)
+        period_length = user.average_period_length or 5
+        return cycle_length, period_length, use_ogino, min_cycle, max_cycle
+
+    @staticmethod
     def _days_word(n: int) -> str:
         mod100, mod10 = n % 100, n % 10
         if 11 <= mod100 <= 19:
@@ -113,6 +121,8 @@ class CycleProjectionService:
             expected_end = active_cycle.start_date + timedelta(days=period_length - 1)
             if today <= expected_end:
                 days_left = (expected_end - today).days
+                if days_left == 0:
+                    return "Менструальна фаза", f"День {day_n} — останній день"
                 return "Менструальна фаза", f"День {day_n} — ще {days_left} {w(days_left)} до завершення"
             # Цикл ще відкритий, але менструація вже за розкладом завершилась
             if projections:
@@ -143,6 +153,8 @@ class CycleProjectionService:
         if next_proj.predicted_start_date <= today <= next_proj.predicted_end_date:
             day_n = (today - next_proj.predicted_start_date).days + 1
             days_left = (next_proj.predicted_end_date - today).days
+            if days_left == 0:
+                return "Менструальна фаза", f"День {day_n} — останній день"
             return "Менструальна фаза", f"День {day_n} — ще {days_left} {w(days_left)} до завершення"
 
         if next_proj.predicted_end_date < today < next_proj.predicted_ovulation_date:
@@ -162,43 +174,75 @@ class CycleProjectionService:
         last_day = monthrange(year, month)[1]
         until = date(year, month, last_day)
 
+        month_start = date(year, month, 1)
         active_cycle = await self.cycle_repository.get_active_cycle(user_id)
         projections = await self.calculate_cycle_projections(
             user_id, until,
             active_start=active_cycle.start_date if active_cycle else None,
         )
-        recent = await self.cycle_repository.get_last_completed_cycles(user_id, limit=1)
+        recent = await self.cycle_repository.get_last_completed_cycles(user_id, limit=24)
+        # Завершені цикли, що перетинаються з запитуваним місяцем
+        completed_in_month = [
+            c for c in recent
+            if c.end_date and c.start_date <= until and c.end_date >= month_start
+        ]
         last_completed = recent[0] if recent else None
         user = await self.user_repository.get_by_id(user_id)
-        period_length = (user.average_period_length if user else None) or 5
+        cycle_length, period_length, _, _, _ = (
+            self._compute_cycle_params(user, recent) if user else (28, 5, False, 0, 0)
+        )
         today = date.today()
+
+        # Стартові дати завершених циклів — проекції, що збігаються з ними, є історичними, а не прогнозом
+        known_cycle_starts = {c.start_date for c in recent}
+
+        # Ов'уляції для проміжків між завершеними циклами (для відображення фаз між ними)
+        sorted_recent = sorted(recent, key=lambda c: c.start_date)
+        cycle_next_starts: dict = {}
+        for i, c in enumerate(sorted_recent):
+            if i + 1 < len(sorted_recent):
+                cycle_next_starts[c.id] = sorted_recent[i + 1].start_date
+            elif active_cycle:
+                cycle_next_starts[c.id] = active_cycle.start_date
+        hist_ov_dates: set[date] = set()
+        for c in recent:
+            if not c.end_date:
+                continue
+            hist_ov = c.start_date + timedelta(days=cycle_length - 14)
+            next_s = cycle_next_starts.get(c.id)
+            if hist_ov <= c.end_date:  # ов'уляція всередині менструації — пропускаємо
+                continue
+            if next_s and hist_ov >= next_s:  # виходить за межі наступного циклу
+                continue
+            hist_ov_dates.add(hist_ov)
 
         days = []
         for day in range(1, last_day + 1):
             current_date = date(year, month, day)
 
             is_menstruation = False
+            # Активний (відкритий) цикл — очікуваний кінець як реальна менструація
             if active_cycle and active_cycle.end_date is None:
-                # Весь очікуваний період одразу реальна менструація
                 expected_end = active_cycle.start_date + timedelta(days=period_length - 1)
-                is_menstruation = active_cycle.start_date <= current_date <= expected_end
-            elif active_cycle and active_cycle.end_date:
-                is_menstruation = active_cycle.start_date <= current_date <= active_cycle.end_date
-            elif last_completed:
-                is_menstruation = last_completed.start_date <= current_date <= last_completed.end_date
+                if active_cycle.start_date <= current_date <= expected_end:
+                    is_menstruation = True
+            # Завершені цикли цього місяця — реальна менструація з БД
+            if not is_menstruation:
+                for c in completed_in_month:
+                    if c.start_date <= current_date <= c.end_date:
+                        is_menstruation = True
+                        break
 
             is_menstruation_predicted = False
             is_ovulation_predicted = False
             is_fertile_window = False
 
             for proj in projections:
-                # Якщо цикл вже закрито — беремо реальну дату кінця, а не прогнозовану
-                proj_end = proj.predicted_end_date
-                if (last_completed and last_completed.end_date
-                        and proj.predicted_start_date == last_completed.start_date):
-                    proj_end = last_completed.end_date
+                # Пропускаємо проекцію, якщо вона відповідає відомому завершеному циклу
+                if proj.predicted_start_date in known_cycle_starts:
+                    continue
 
-                if proj.predicted_start_date <= current_date <= proj_end:
+                if proj.predicted_start_date <= current_date <= proj.predicted_end_date:
                     is_menstruation_predicted = True
                 if current_date == proj.predicted_ovulation_date:
                     is_ovulation_predicted = True
@@ -207,10 +251,15 @@ class CycleProjectionService:
                         and not is_menstruation):
                     is_fertile_window = True
 
+            # Ов'уляція між завершеними циклами (для відображення фаз у проміжках)
+            if not is_menstruation and not is_ovulation_predicted and current_date in hist_ov_dates:
+                is_ovulation_predicted = True
+
             # Пріоритет реальної менструації над прогнозом
             if is_menstruation:
                 is_menstruation_predicted = False
                 is_fertile_window = False
+                is_ovulation_predicted = False
 
             days.append({
                 "date": current_date.isoformat(),
@@ -230,4 +279,12 @@ class CycleProjectionService:
                 "id": str(active_cycle.id),
                 "start_date": active_cycle.start_date.isoformat(),
             } if active_cycle else None,
+            "completed_cycles": [
+                {
+                    "id": str(c.id),
+                    "start_date": c.start_date.isoformat(),
+                    "end_date": c.end_date.isoformat() if c.end_date else None,
+                }
+                for c in recent
+            ],
         }
