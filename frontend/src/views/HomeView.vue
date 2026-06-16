@@ -360,9 +360,17 @@ function onTimelineWheel(e) {
 // scrollTo without snap interference; after scroll: extend if needed
 function gotoMonth(m, y) {
   const isCurrentMonth = m === _today.getMonth() + 1 && y === _today.getFullYear()
-  const idx = isCurrentMonth
-    ? allDays.value.findIndex(d => d.is_today)
-    : allDays.value.findIndex(d => d.month === m && d.year === y)
+  let idx
+  if (isCurrentMonth) {
+    idx = allDays.value.findIndex(d => d.is_today)
+  } else {
+    const cycleStart = allDays.value.findIndex(
+      d => d.month === m && d.year === y && (d.is_menstruation || d.is_menstruation_predicted)
+    )
+    idx = cycleStart >= 0
+      ? cycleStart
+      : allDays.value.findIndex(d => d.month === m && d.year === y)
+  }
   if (idx < 0 || !trackRef.value) return
   clearTimeout(snapTimer)
   isSnapping = true
