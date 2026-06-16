@@ -222,7 +222,7 @@ function _phaseForDay(day, idx) {
   const todayStr = n_.getFullYear() + '-' + String(n_.getMonth() + 1).padStart(2, '0') + '-' + String(n_.getDate()).padStart(2, '0')
   const isPast = day.date < todayStr
   const firstDataDay = isPast
-    ? allDays.value.find(d => d.is_menstruation || d.is_menstruation_predicted || d.is_ovulation_predicted)
+    ? allDays.value.find(d => d.is_menstruation || d.is_menstruation_predicted || d.is_ovulation_predicted || d.is_fertile_window)
     : null
 
   if (isPast) {

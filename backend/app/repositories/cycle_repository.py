@@ -18,6 +18,15 @@ class CycleRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_next_cycle(self, user_id: uuid.UUID, after_date: date) -> Cycle | None:
+        result = await self.db.execute(
+            select(Cycle)
+            .where(Cycle.user_id == user_id, Cycle.start_date > after_date)
+            .order_by(Cycle.start_date.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def create_cycle(self, user_id: uuid.UUID, start_date: date) -> Cycle:
         cycle = Cycle(user_id=user_id, start_date=start_date)
         self.db.add(cycle)
@@ -30,6 +39,20 @@ class CycleRepository:
         await self.db.commit()
         await self.db.refresh(cycle)
         return cycle
+
+    async def close_and_create_cycle(
+        self,
+        old_cycle: Cycle,
+        close_date: date,
+        user_id: uuid.UUID,
+        start_date: date,
+    ) -> Cycle:
+        old_cycle.end_date = close_date
+        new_cycle = Cycle(user_id=user_id, start_date=start_date)
+        self.db.add(new_cycle)
+        await self.db.commit()
+        await self.db.refresh(new_cycle)
+        return new_cycle
 
     async def update_start(self, cycle: Cycle, start_date: date) -> Cycle:
         cycle.start_date = start_date

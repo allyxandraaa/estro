@@ -12,7 +12,6 @@ from pydantic import ValidationError
 from app.schemas.onboarding import OnboardingRequest
 from app.services.onboarding_service import OnboardingService
 
-TODAY = date.today()
 UID = uuid.uuid4()
 
 
@@ -49,7 +48,7 @@ def test_onboarding_rejects_period_gte_cycle():
 def test_onboarding_rejects_future_last_period_date():
     """TC-03 edge: дата в майбутньому → ValidationError."""
     with pytest.raises(ValidationError):
-        OnboardingRequest(last_period_date=TODAY + timedelta(days=1))
+        OnboardingRequest(last_period_date=date.today() + timedelta(days=1))
 
 
 def test_onboarding_accepts_all_none():
@@ -62,8 +61,9 @@ def test_onboarding_accepts_all_none():
 
 def test_onboarding_accepts_today_as_last_period_date():
     """TC-03: дата сьогодні → OK (не є майбутньою)."""
-    req = OnboardingRequest(last_period_date=TODAY)
-    assert req.last_period_date == TODAY
+    today = date.today()
+    req = OnboardingRequest(last_period_date=today)
+    assert req.last_period_date == today
 
 
 # ── TC-03: OnboardingService дефолти ────────────────────────────────────────
@@ -87,18 +87,18 @@ async def test_onboarding_defaults_period_length():
     assert kwargs["average_period_length"] == 5
 
 
-async def test_onboarding_skip_date_stores_null():
-    """TC-03 edge: пропустити крок 3 → last_period_date=None (не date.today())."""
+async def test_onboarding_skip_date_stores_today():
+    """TC-03 edge: пропустити крок 3 → last_period_date=date.today() (запобігає нескінченному редиректу BUG-07)."""
     svc = _make_svc()
     await svc.save_onboarding(UID, OnboardingRequest(cycle_length=28, period_length=5))
 
     kwargs = svc._repository.update_user_profile.call_args.kwargs
-    assert kwargs["last_period_date"] is None
+    assert kwargs["last_period_date"] == date.today()
 
 
 async def test_onboarding_stores_user_provided_date():
     """TC-03: вказана дата → зберігається без змін."""
-    target = TODAY - timedelta(days=10)
+    target = date.today() - timedelta(days=10)
     svc = _make_svc()
     await svc.save_onboarding(UID, OnboardingRequest(cycle_length=28, period_length=5, last_period_date=target))
 
@@ -120,35 +120,31 @@ async def test_onboarding_not_calculated_when_all_provided():
     svc = _make_svc()
     await svc.save_onboarding(
         UID,
-        OnboardingRequest(cycle_length=28, period_length=5, last_period_date=TODAY - timedelta(days=5)),
+        OnboardingRequest(cycle_length=28, period_length=5, last_period_date=date.today() - timedelta(days=5)),
     )
 
     kwargs = svc._repository.update_user_profile.call_args.kwargs
     assert kwargs["is_calculated_default"] is False
 
 
-# ── BUG-07: needs_onboarding зависає ────────────────────────────────────────
+# ── BUG-07 (fixed): needs_onboarding loop ───────────────────────────────────
 
 
-def test_needs_onboarding_logic_true_when_last_period_date_none():
+def test_needs_onboarding_false_when_last_period_date_is_set():
     """
-    BUG-07: auth_service перевіряє last_period_date is None у needs_onboarding.
-    Якщо користувач пропустив крок 3, needs_onboarding=True на кожен логін
-    → нескінченний редирект на /onboarding.
+    BUG-07 fixed: після онбордингу з пропуском дати last_period_date тепер
+    зберігається як date.today(), тому needs_onboarding=False при наступному логіні.
     """
-    # Стан після онбордингу з пропуском дати:
     average_cycle_length = 28
     average_period_length = 5
-    last_period_date = None
+    last_period_date = date.today()  # сервіс тепер зберігає today замість None
 
-    # Логіка з auth_service.py (рядки 67–72):
     needs_onboarding = (
         average_cycle_length is None
         or average_period_length is None
         or last_period_date is None
     )
 
-    # Документуємо помилкову поведінку: True, хоча онбординг завершено
-    assert needs_onboarding is True, (
-        "BUG-07: needs_onboarding=True після онбордингу, якщо пропущено крок 3"
+    assert needs_onboarding is False, (
+        "BUG-07 fixed: needs_onboarding має бути False після онбордингу"
     )

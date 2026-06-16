@@ -10,7 +10,6 @@ import pytest
 
 from app.services.cycle_projection_service import CycleProjectionService
 
-TODAY = date.today()
 UID = uuid.uuid4()
 
 
@@ -46,7 +45,7 @@ def _svc(user, cycles, active=None):
 
 async def test_no_data_returns_empty():
     svc = _svc(_user(last_period_date=None), [])
-    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=30))
+    result = await svc.calculate_cycle_projections(UID, until=date.today() + timedelta(days=30))
     assert result == []
 
 
@@ -84,8 +83,8 @@ async def test_rolling_average_with_3_cycles():
     cycles = [_cycle(starts[i], starts[i] + timedelta(days=4)) for i in range(3)]
     svc = _svc(_user(is_default=False), cycles)
 
-    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=60))
-    # Не перевіряємо конкретну дату (залежить від TODAY), але прогнози мають бути
+    result = await svc.calculate_cycle_projections(UID, until=date.today() + timedelta(days=60))
+    # Не перевіряємо конкретну дату (залежить від date.today()), але прогнози мають бути
     assert len(result) > 0
 
 
@@ -98,8 +97,8 @@ async def test_ogino_activates_at_6_cycles():
     cycles = [_cycle(base + timedelta(days=28 * i), base + timedelta(days=28 * i + 4)) for i in range(6)]
     svc = _svc(_user(is_default=False), cycles)
 
-    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=90))
-    future = [p for p in result if p.predicted_start_date > TODAY]
+    result = await svc.calculate_cycle_projections(UID, until=date.today() + timedelta(days=90))
+    future = [p for p in result if p.predicted_start_date > date.today()]
 
     assert future, "Очікується хоча б один майбутній прогноз"
     assert future[0].fertile_window_start is not None, "Огіно-Кнаус має бути при 6 циклах"
@@ -111,11 +110,11 @@ async def test_ogino_not_active_at_5_cycles():
     cycles = [_cycle(base + timedelta(days=28 * i), base + timedelta(days=28 * i + 4)) for i in range(5)]
     svc = _svc(_user(is_default=False), cycles)
 
-    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=90))
-    future = [p for p in result if p.predicted_start_date > TODAY]
+    result = await svc.calculate_cycle_projections(UID, until=date.today() + timedelta(days=90))
+    future = [p for p in result if p.predicted_start_date > date.today()]
 
-    if future:
-        assert future[0].fertile_window_start is None, "Огіно-Кнаус НЕ має бути при 5 циклах"
+    assert future, "Очікується хоча б один майбутній прогноз"
+    assert future[0].fertile_window_start is None, "Огіно-Кнаус НЕ має бути при 5 циклах"
 
 
 async def test_ogino_window_formula():
@@ -126,17 +125,17 @@ async def test_ogino_window_formula():
     cycles = [_cycle(starts_raw[i], starts_raw[i] + timedelta(days=4)) for i in range(6)]
     svc = _svc(_user(is_default=False), cycles)
 
-    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=90))
-    future = [p for p in result if p.predicted_start_date > TODAY and p.fertile_window_start is not None]
+    result = await svc.calculate_cycle_projections(UID, until=date.today() + timedelta(days=90))
+    future = [p for p in result if p.predicted_start_date > date.today() and p.fertile_window_start is not None]
 
-    if future:
-        p = future[0]
-        diffs = [
-            (cycles[i + 1].start_date - cycles[i].start_date).days for i in range(5)
-        ]
-        min_c, max_c = min(diffs), max(diffs)
-        assert p.fertile_window_start == p.predicted_start_date + timedelta(days=min_c - 18)
-        assert p.fertile_window_end == p.predicted_start_date + timedelta(days=max_c - 11)
+    assert future, "Очікується хоча б один майбутній прогноз з Огіно-Кнаусом"
+    p = future[0]
+    diffs = [
+        (cycles[i + 1].start_date - cycles[i].start_date).days for i in range(5)
+    ]
+    min_c, max_c = min(diffs), max(diffs)
+    assert p.fertile_window_start == p.predicted_start_date + timedelta(days=min_c - 18)
+    assert p.fertile_window_end == p.predicted_start_date + timedelta(days=max_c - 11)
 
 
 # ── TC-06: розмітка днів у календарі ────────────────────────────────────────
@@ -176,15 +175,15 @@ def test_start_request_rejects_future_date():
     from app.schemas.cycles import StartCycleRequest
 
     with pytest.raises(ValidationError):
-        StartCycleRequest(date=TODAY + timedelta(days=1))
+        StartCycleRequest(date=date.today() + timedelta(days=1))
 
 
 def test_start_request_accepts_past_date():
     """POST /cycles/start: дата минулого → OK."""
     from app.schemas.cycles import StartCycleRequest
 
-    req = StartCycleRequest(date=TODAY - timedelta(days=7))
-    assert req.date == TODAY - timedelta(days=7)
+    req = StartCycleRequest(date=date.today() - timedelta(days=7))
+    assert req.date == date.today() - timedelta(days=7)
 
 
 def test_end_request_rejects_future_date():
@@ -193,30 +192,29 @@ def test_end_request_rejects_future_date():
     from app.schemas.cycles import EndCycleRequest
 
     with pytest.raises(ValidationError):
-        EndCycleRequest(date=TODAY + timedelta(days=1))
+        EndCycleRequest(date=date.today() + timedelta(days=1))
 
 
 # ── BUG-01: онбординг без дати ──────────────────────────────────────────────
 
 
-async def test_onboarding_skip_date_sets_today_as_base(monkeypatch):
+async def test_onboarding_skip_date_sets_today_as_base():
     """
-    BUG-01: якщо last_period_date=today (онбординг без дати), сервіс
-    генерує прогнозовану менструацію з сьогодні замість порожнього стану.
+    Якщо onboarding зберіг last_period_date=date.today() (користувач пропустив крок 3),
+    сервіс генерує прогноз починаючи від сьогодні — це коректна поведінка після виправлення BUG-07.
     """
-    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=TODAY), [])
-    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=30))
+    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=date.today()), [])
+    result = await svc.calculate_cycle_projections(UID, until=date.today() + timedelta(days=30))
 
-    # Документуємо поточну (помилкову) поведінку: є проєкція з сьогодні
-    assert any(p.predicted_start_date == TODAY for p in result), (
-        "BUG-01: прогноз починається сьогодні, хоча мав бути порожній стан"
+    assert any(p.predicted_start_date == date.today() for p in result), (
+        "Прогноз має починатися сьогодні, якщо last_period_date=date.today()"
     )
 
 
 async def test_onboarding_skip_date_null_returns_empty():
     """Якщо last_period_date=null — порожній стан (очікувана поведінка після виправлення BUG-01)."""
     svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=None), [])
-    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=30))
+    result = await svc.calculate_cycle_projections(UID, until=date.today() + timedelta(days=30))
     assert result == [], "Без дати останньої менструації прогнозів не має бути"
 
 
@@ -227,8 +225,8 @@ async def test_short_cycle_ovulation_precedes_start():
     """
     BUG-04: цикл <= 14 днів -> дата овуляції потрапляє до дати початку менструації.
     """
-    svc = _svc(_user(cycle_length=10, period_length=3, is_default=True, last_period_date=TODAY), [])
-    result = await svc.calculate_cycle_projections(UID, until=TODAY + timedelta(days=30))
+    svc = _svc(_user(cycle_length=10, period_length=3, is_default=True, last_period_date=date.today()), [])
+    result = await svc.calculate_cycle_projections(UID, until=date.today() + timedelta(days=30))
 
     for proj in result:
         if proj.predicted_ovulation_date < proj.predicted_start_date:
@@ -241,22 +239,18 @@ async def test_short_cycle_ovulation_precedes_start():
 
 
 async def test_past_days_not_marked_predicted():
-    """
-    BUG-05: якщо predicted_start < today але predicted_end >= today,
-    минулі дні отримують is_menstruation_predicted=true.
-    """
-    yesterday = TODAY - timedelta(days=1)
+    """BUG-05 fixed: минулі дні не мають is_menstruation_predicted."""
+    yesterday = date.today() - timedelta(days=1)
     svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=yesterday), [])
 
-    data = await svc.get_calendar_month(UID, month=TODAY.month, year=TODAY.year)
+    data = await svc.get_calendar_month(UID, month=date.today().month, year=date.today().year)
     yesterday_str = yesterday.isoformat()
     yesterday_day = next((d for d in data["days"] if d["date"] == yesterday_str), None)
 
-    if yesterday_day:
-        # Документуємо поточну поведінку: вчора позначено як predicted
-        assert yesterday_day["is_menstruation_predicted"], (
-            "BUG-03: вчорашній день позначено як is_menstruation_predicted"
-        )
+    assert yesterday_day is not None, "Вчорашній день має бути в календарі"
+    assert not yesterday_day["is_menstruation_predicted"], (
+        "BUG-05 fixed: вчорашній день НЕ має бути is_menstruation_predicted"
+    )
 
 
 # ── TC-06: calendar без даних ────────────────────────────────────────────────
@@ -280,22 +274,22 @@ async def test_calendar_no_data_returns_all_false_flags():
 
 async def test_past_ovulation_not_marked_predicted():
     """
-    TC-09 edge / BUG-08: projected_ovulation < today → не має бути is_ovulation_predicted.
-    base=today-8, cycle_length=20: ov=today-2 (минуле), end=today+6 (майбутнє).
-    Проєкція включається (end >= today), але дата овуляції вже в минулому.
+    TC-09 edge / BUG-08: projected_ovulation < date.today() → не має бути is_ovulation_predicted.
+    base=date.today()-8, cycle_length=20: ov=date.today()-2 (минуле), end=date.today()+6 (майбутнє).
+    Проєкція включається (end >= date.today()), але дата овуляції вже в минулому.
     """
-    base = TODAY - timedelta(days=8)
-    ov_date = base + timedelta(days=6)  # today - 2
+    base = date.today() - timedelta(days=8)
+    ov_date = base + timedelta(days=6)  # date.today() - 2
 
     svc = _svc(_user(cycle_length=20, period_length=15, is_default=True, last_period_date=base), [])
-    data = await svc.get_calendar_month(UID, month=TODAY.month, year=TODAY.year)
+    data = await svc.get_calendar_month(UID, month=date.today().month, year=date.today().year)
 
     ov_day = next((d for d in data["days"] if d["date"] == ov_date.isoformat()), None)
-    if ov_day:
-        # Документуємо поточну (помилкову) поведінку: минула дата овуляції позначена predicted
-        assert ov_day["is_ovulation_predicted"], (
-            "BUG-08: минула дата овуляції (today-2) позначена is_ovulation_predicted=true"
-        )
+
+    assert ov_day is not None, "День овуляції має бути в календарі"
+    assert not ov_day["is_ovulation_predicted"], (
+        "BUG-08 fixed: минула дата овуляції НЕ має бути is_ovulation_predicted"
+    )
 
 
 # ── 1-day period bug ────────────────────────────────────────────────────────
@@ -303,7 +297,7 @@ async def test_past_ovulation_not_marked_predicted():
 
 async def test_one_day_period_no_phantom_predicted():
     """Цикл тривалістю 1 день: дні після end_date не мають is_menstruation_predicted."""
-    start = TODAY - timedelta(days=1)
+    start = date.today() - timedelta(days=1)
     closed = _cycle(start, start)  # end_date == start_date
 
     svc = CycleProjectionService(
@@ -316,7 +310,7 @@ async def test_one_day_period_no_phantom_predicted():
     svc.cycle_repository.get_last_completed_cycles.return_value = [closed]
     svc.cycle_repository.get_active_cycle.return_value = None
 
-    data = await svc.get_calendar_month(UID, month=TODAY.month, year=TODAY.year)
+    data = await svc.get_calendar_month(UID, month=date.today().month, year=date.today().year)
 
     for day in data["days"]:
         if day["date"] > start.isoformat():

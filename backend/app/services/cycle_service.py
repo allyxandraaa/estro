@@ -1,6 +1,7 @@
 import uuid
 from datetime import date
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.cycle_repository import CycleRepository
@@ -18,7 +19,10 @@ class CycleService:
         if active:
             raise ValueError("Вже є відкритий цикл")
 
-        return await self.repository.create_cycle(user_id, start_date)
+        try:
+            return await self.repository.create_cycle(user_id, start_date)
+        except IntegrityError:
+            raise ValueError("Вже є відкритий цикл") from None
 
     async def end_cycle(self, user_id: uuid.UUID, end_date: date):
         if end_date > date.today():
@@ -31,4 +35,7 @@ class CycleService:
         if end_date < active.start_date:
             raise ValueError("Дата закінчення не може бути раніше дати початку")
 
-        return await self.repository.close_cycle(active, end_date)
+        try:
+            return await self.repository.close_cycle(active, end_date)
+        except IntegrityError as e:
+            raise ValueError("Помилка збереження циклу") from e
