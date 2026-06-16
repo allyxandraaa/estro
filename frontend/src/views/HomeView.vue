@@ -2,7 +2,8 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth.js'
-import { getCalendarView, startCycle, endCycle } from '../api/cycles.js'
+import { getCalendarView, startCycle, endCycle, deleteCycle, updateCycleEnd } from '../api/cycles.js'
+import { getNotifications, markAllRead } from '../api/notifications.js'
 import logoUrl from '../assets/logo.svg'
 
 const router = useRouter()
@@ -27,9 +28,16 @@ const activeCycle         = ref(null)
 const errorMsg            = ref('')
 const dataLoaded          = ref(false)
 const trackRef            = ref(null)
-const pickingMode  = ref(null) // 'start' | 'end' | null
-const choosingType = ref(false)
-const pickedDay    = ref(null)
+const pickingMode     = ref(null) // 'start' | 'end' | 'delete' | null
+const choosingType    = ref(false)
+const pickedDay       = ref(null)
+const completedCycles = ref([])
+const pickedCycleId   = ref(null)
+
+const notifWrap          = ref(null)
+const notificationsOpen  = ref(false)
+const notifications      = ref([])
+const unreadCount        = ref(0)
 
 const drag = reactive({ active: false, startX: 0, startLeft: 0, moved: false })
 
@@ -50,12 +58,19 @@ const WEEKDAYS     = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб']
 const monthLabel = computed(() => MONTHS[viewMonth.value - 1] + ' ' + viewYear.value)
 
 const hasActivePeriod = computed(() => allDays.value.some(d => d.is_menstruation))
+const hasOpenCycle    = computed(() => activeCycle.value !== null)
+const canDelete       = computed(() => activeCycle.value !== null || completedCycles.value.length > 0)
 
 const pickingHint = computed(() => {
   if (!pickingMode.value) return ''
+  if (pickingMode.value === 'end') {
+    if (!pickedCycleId.value) return 'Оберіть будь-який день менструації, кінець якої хочете змінити'
+    if (pickedDay.value) return 'Натисніть «Підтвердити» або оберіть інший день'
+    return 'Оберіть новий останній день менструації'
+  }
   if (pickedDay.value) return 'Натисніть «Підтвердити» або оберіть інший день'
   if (pickingMode.value === 'start') return 'Оберіть перший день місячних'
-  return 'Оберіть останній день місячних'
+  return 'Оберіть будь-який день місячних, які хочете видалити'
 })
 
 
@@ -143,16 +158,54 @@ function _phaseForDay(day, idx) {
     phaseSubtitle.value = todaySubtitle.value
     return
   }
+
   if (day.is_menstruation) {
-    currentPhase.value  = 'Менструальна фаза'
-    phaseSubtitle.value = 'Реальна менструація'
+    currentPhase.value = 'Менструальна фаза'
+    let cycle = completedCycles.value.find(
+      c => c.start_date <= day.date && c.end_date && c.end_date >= day.date
+    )
+    if (!cycle && activeCycle.value && day.date >= activeCycle.value.start_date) {
+      cycle = activeCycle.value
+    }
+    if (!cycle) { phaseSubtitle.value = ''; return }
+    const dayN = Math.round((new Date(day.date) - new Date(cycle.start_date)) / 86400000) + 1
+    if (cycle.end_date) {
+      const daysLeft = Math.round((new Date(cycle.end_date) - new Date(day.date)) / 86400000)
+      phaseSubtitle.value = daysLeft === 0
+        ? `День ${dayN} — останній день`
+        : `День ${dayN} — ще ${daysLeft} ${_daysWord(daysLeft)} до завершення`
+    } else {
+      // Активний цикл без дати завершення — знаходимо очікуваний кінець по is_menstruation
+      const allDaysArr = allDays.value
+      const si = allDaysArr.findIndex(d => d.date === cycle.start_date)
+      let expectedEndDate = cycle.start_date
+      if (si >= 0) {
+        for (let j = si; j < allDaysArr.length && allDaysArr[j].is_menstruation; j++) {
+          expectedEndDate = allDaysArr[j].date
+        }
+      }
+      const daysLeft = Math.round((new Date(expectedEndDate) - new Date(day.date)) / 86400000)
+      phaseSubtitle.value = daysLeft === 0
+        ? `День ${dayN} — останній день`
+        : `День ${dayN} — ще ${daysLeft} ${_daysWord(daysLeft)} до завершення`
+    }
     return
   }
+
   if (day.is_menstruation_predicted) {
-    currentPhase.value  = 'Менструальна фаза'
-    phaseSubtitle.value = 'Прогнозована менструація'
+    currentPhase.value = 'Менструальна фаза'
+    const allDaysArr = allDays.value
+    let predStart = day.date, predEnd = day.date
+    for (let j = idx - 1; j >= 0 && allDaysArr[j].is_menstruation_predicted; j--) predStart = allDaysArr[j].date
+    for (let j = idx + 1; j < allDaysArr.length && allDaysArr[j].is_menstruation_predicted; j++) predEnd = allDaysArr[j].date
+    const dayN     = Math.round((new Date(day.date) - new Date(predStart)) / 86400000) + 1
+    const daysLeft = Math.round((new Date(predEnd)  - new Date(day.date))  / 86400000)
+    phaseSubtitle.value = daysLeft === 0
+      ? `Прогноз, день ${dayN} — останній день`
+      : `Прогноз, день ${dayN} — ще ${daysLeft} ${_daysWord(daysLeft)} до завершення`
     return
   }
+
   if (day.is_ovulation_predicted) {
     currentPhase.value  = 'Овуляція'
     phaseSubtitle.value = 'Найвища ймовірність завагітніти'
@@ -165,16 +218,20 @@ function _phaseForDay(day, idx) {
   }
 
   const days = allDays.value
-  // Якщо день у минулому і ще до першого відомого дня циклу — показуємо "немає даних"
-  const _now = new Date()
-  const todayStr = _now.getFullYear() + '-' +
-    String(_now.getMonth() + 1).padStart(2, '0') + '-' +
-    String(_now.getDate()).padStart(2, '0')
-  if (day.date < todayStr) {
-    const firstDataDay = allDays.value.find(
-      d => d.is_menstruation || d.is_menstruation_predicted || d.is_ovulation_predicted || d.is_fertile_window
-    )
-    if (!firstDataDay || day.date < firstDataDay.date) {
+  const n_ = new Date()
+  const todayStr = n_.getFullYear() + '-' + String(n_.getMonth() + 1).padStart(2, '0') + '-' + String(n_.getDate()).padStart(2, '0')
+  const isPast = day.date < todayStr
+  const firstDataDay = isPast
+    ? allDays.value.find(d => d.is_menstruation || d.is_menstruation_predicted || d.is_ovulation_predicted || d.is_fertile_window)
+    : null
+
+  if (isPast) {
+    if (!firstDataDay) {
+      currentPhase.value  = ''
+      phaseSubtitle.value = ''
+      return
+    }
+    if (day.date < firstDataDay.date) {
       currentPhase.value  = 'Немає даних'
       phaseSubtitle.value = 'Тут ще немає записів про цикли'
       return
@@ -208,6 +265,12 @@ function _phaseForDay(day, idx) {
     return
   }
 
+  // Між двома циклами: дані є, але фаза не обчислюється (цикли занадто далеко)
+  if (isPast && firstDataDay && day.date >= firstDataDay.date) {
+    currentPhase.value  = 'Немає даних'
+    phaseSubtitle.value = ''
+    return
+  }
   currentPhase.value  = ''
   phaseSubtitle.value = ''
 }
@@ -408,13 +471,49 @@ function enterStartMode() {
 function enterEndMode() {
   choosingType.value = false
   pickedDay.value = null
+  pickedCycleId.value = null
   pickingMode.value = 'end'
+}
+
+function enterDeleteMode() {
+  choosingType.value = false
+  pickedDay.value = null
+  pickedCycleId.value = null
+  pickingMode.value = 'delete'
 }
 
 function cancelPickingMode() {
   choosingType.value = false
   pickingMode.value = null
   pickedDay.value = null
+  pickedCycleId.value = null
+}
+
+function isInDeleteRange(day) {
+  if (!pickedCycleId.value) return false
+  const c = completedCycles.value.find(d => d.id === pickedCycleId.value)
+            ?? (activeCycle.value?.id === pickedCycleId.value ? activeCycle.value : null)
+  if (!c) return false
+  if (c.end_date) return day.date >= c.start_date && day.date <= c.end_date
+  return day.is_menstruation && day.date >= c.start_date
+}
+
+function isDayMuted(day) {
+  if (pickingMode.value === 'end') {
+    if (!pickedCycleId.value) {
+      // Крок 1: вибір циклу — доступні лише дні менструації
+      return !day.is_menstruation
+    }
+    // Крок 2: вибір нового кінцевого дня — від старту обраного циклу до сьогодні
+    const d = new Date()
+    const todayStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+    const c = completedCycles.value.find(c2 => c2.id === pickedCycleId.value)
+              ?? (activeCycle.value?.id === pickedCycleId.value ? activeCycle.value : null)
+    const startStr = c?.start_date
+    return !startStr || day.date < startStr || day.date > todayStr
+  }
+  if (pickingMode.value === 'delete') return !day.is_menstruation
+  return false
 }
 
 function onDayClick(day) {
@@ -427,8 +526,34 @@ function onDayClick(day) {
     setTimeout(() => { isSnapping = false; updateMonthLabel() }, 600)
   }
   if (!pickingMode.value) return
-  if (pickingMode.value === 'end' && !day.is_menstruation) return
+  if (isDayMuted(day)) return
+
+  // Крок 1 режиму "Кінець": визначаємо цикл і переходимо до вибору дати
+  if (pickingMode.value === 'end' && !pickedCycleId.value) {
+    const found = completedCycles.value.find(
+      c => c.start_date <= day.date && c.end_date && c.end_date >= day.date
+    )
+    if (found) { pickedCycleId.value = found.id }
+    else if (activeCycle.value && day.date >= activeCycle.value.start_date) {
+      pickedCycleId.value = activeCycle.value.id
+    }
+    return
+  }
+
   pickedDay.value = day.date
+
+  if (pickingMode.value === 'delete') {
+    const found = completedCycles.value.find(
+      c => c.start_date <= day.date && c.end_date && c.end_date >= day.date
+    )
+    if (found) {
+      pickedCycleId.value = found.id
+    } else if (activeCycle.value && day.date >= activeCycle.value.start_date) {
+      pickedCycleId.value = activeCycle.value.id
+    } else {
+      pickedCycleId.value = null
+    }
+  }
 }
 
 async function refreshData() {
@@ -444,26 +569,24 @@ async function refreshData() {
   try {
     const result = await getCalendarView(cm, cy)
     const data = result?.days ? result : (result?.data ?? {})
-    if (data.current_phase) {
-      currentPhase.value = data.current_phase
-      todayPhase.value   = data.current_phase
-    }
-    if (data.phase_subtitle) {
-      phaseSubtitle.value = data.phase_subtitle
-      todaySubtitle.value = data.phase_subtitle
-    }
-    if (data.active_cycle != null) activeCycle.value = data.active_cycle
+    currentPhase.value  = data.current_phase  ?? ''
+    todayPhase.value    = data.current_phase  ?? ''
+    phaseSubtitle.value = data.phase_subtitle ?? ''
+    todaySubtitle.value = data.phase_subtitle ?? ''
+    activeCycle.value = data.active_cycle ?? null
+    if (data.completed_cycles) completedCycles.value = data.completed_cycles
     if (data.days) mergeApiDays(data.days)
   } catch {
     errorMsg.value = 'Не вдалося оновити. Перевірте з\'єднання.'
     return
   }
 
-  // Решта видимих місяців — без await, фонові запити
-  for (const k of monthKeys) {
-    const [y, m] = k.split('-').map(Number)
-    if (m !== cm || y !== cy) fetchMonthData(m, y)
-  }
+  // Решта видимих місяців — чекаємо всіх, щоб фаза рахувалась по свіжих даних
+  await Promise.all(
+    monthKeys
+      .filter(k => { const [y, m] = k.split('-').map(Number); return m !== cm || y !== cy })
+      .map(k   => { const [y, m] = k.split('-').map(Number); return fetchMonthData(m, y) })
+  )
 
   // Перерахуємо фазу для поточно центрованого дня
   if (centeredDay.value) {
@@ -487,24 +610,90 @@ async function confirmStart() {
 }
 
 async function confirmEnd() {
-  if (!pickedDay.value) return
+  if (!pickedDay.value || !pickedCycleId.value) return
   const date = pickedDay.value
+  const cycleId = pickedCycleId.value
+  const isActive = activeCycle.value?.id === cycleId
   pickingMode.value = null
   pickedDay.value = null
+  pickedCycleId.value = null
   errorMsg.value = ''
   try {
-    await endCycle(date)
+    if (isActive) {
+      await endCycle(date)
+    } else {
+      await updateCycleEnd(cycleId, date)
+    }
     await refreshData()
   } catch (e) {
     errorMsg.value = e.message || 'Не вдалося зберегти. Перевірте з\'єднання.'
   }
 }
 
-function handleSymptoms()      { router.push({ name: 'symptoms'      }).catch(() => {}) }
-function handleCalendar()      { router.push({ name: 'home'          }).catch(() => {}) }
-function handleNotifications() { router.push({ name: 'notifications' }).catch(() => {}) }
-function handleProfile()       { router.push({ name: 'profile'       }).catch(() => {}) }
-function doLogout()            { logout(); router.push({ name: 'login' }) }
+async function confirmDelete() {
+  if (!pickedCycleId.value) return
+  const cycleId = pickedCycleId.value
+  pickingMode.value = null
+  pickedDay.value = null
+  pickedCycleId.value = null
+  errorMsg.value = ''
+  try {
+    await deleteCycle(cycleId)
+    await refreshData()
+  } catch (e) {
+    errorMsg.value = e.message || 'Не вдалося видалити. Перевірте з\'єднання.'
+  }
+}
+
+function handleSymptoms() { router.push({ name: 'symptoms' }).catch(() => {}) }
+function handleCalendar() { router.push({ name: 'home'     }).catch(() => {}) }
+function handleProfile()  { router.push({ name: 'profile'  }).catch(() => {}) }
+function doLogout()       { logout(); router.push({ name: 'login' }) }
+
+async function fetchNotifications() {
+  try {
+    const result = await getNotifications()
+    const data = result?.data ?? result ?? {}
+    notifications.value = data.notifications ?? []
+    unreadCount.value   = data.unread_count  ?? 0
+  } catch { /* silent */ }
+}
+
+async function toggleNotifications() {
+  notificationsOpen.value = !notificationsOpen.value
+  if (notificationsOpen.value && unreadCount.value > 0) {
+    unreadCount.value   = 0
+    notifications.value = notifications.value.map(n => ({ ...n, is_read: true }))
+    try { await markAllRead() } catch { /* silent */ }
+  }
+}
+
+function onOutsideClick(e) {
+  if (notifWrap.value && !notifWrap.value.contains(e.target)) {
+    notificationsOpen.value = false
+  }
+}
+
+function formatNotifTime(createdAt) {
+  const diff = Date.now() - new Date(createdAt).getTime()
+  const min  = Math.floor(diff / 60000)
+  const hr   = Math.floor(diff / 3600000)
+  const day  = Math.floor(diff / 86400000)
+  if (min < 1)  return 'щойно'
+  if (min < 60) return `${min} хв. тому`
+  if (hr  < 24) return `${hr} год. тому`
+  if (day === 1) return 'вчора'
+  return `${day} дн. тому`
+}
+
+function daysUntilText(scheduledDate) {
+  const n = new Date()
+  const todayStr = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0')
+  const diff = Math.round((new Date(scheduledDate) - new Date(todayStr)) / 86400000)
+  if (diff <= 0) return ''
+  if (diff === 1) return '— завтра'
+  return `— через ${diff} ${_daysWord(diff)}`
+}
 
 async function loadCalendar() {
   const today = new Date()
@@ -530,8 +719,9 @@ async function loadCalendar() {
       phaseSubtitle.value = data.phase_subtitle
       todaySubtitle.value = data.phase_subtitle
     }
-    if (data.active_cycle != null) activeCycle.value = data.active_cycle
-    if (data.days)                 mergeApiDays(data.days)
+    activeCycle.value = data.active_cycle ?? null
+    if (data.completed_cycles) completedCycles.value = data.completed_cycles
+    if (data.days)             mergeApiDays(data.days)
     dataLoaded.value = true
   } catch {
     dataLoaded.value = true
@@ -557,10 +747,13 @@ function onGlobalMouseUp() { drag.active = false; stopScroll() }
 
 onMounted(() => {
   loadCalendar()
+  fetchNotifications()
   window.addEventListener('mouseup', onGlobalMouseUp)
+  document.addEventListener('mousedown', onOutsideClick)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('mouseup', onGlobalMouseUp)
+  document.removeEventListener('mousedown', onOutsideClick)
   if (scaleRafId) { cancelAnimationFrame(scaleRafId); scaleRafId = null }
   stopScroll()
   clearTimeout(snapTimer)
@@ -575,8 +768,34 @@ onBeforeUnmount(() => {
       <img class="brand" :src="logoUrl" alt="Estro" @click="doLogout" title="Вийти" />
       <div class="nav-btns">
         <button class="nav-btn nav-btn--filled nav-btn--active" aria-current="page" @click="handleCalendar">До календаря</button>
-        <button class="nav-btn nav-btn--outline" @click="handleNotifications">Сповіщення</button>
-        <button class="nav-btn nav-btn--filled"  @click="handleProfile">Профіль</button>
+        <div class="notif-wrap" ref="notifWrap">
+          <button class="nav-btn nav-btn--outline notif-btn" @click="toggleNotifications">
+            Сповіщення
+            <span v-if="unreadCount > 0" class="notif-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span>
+          </button>
+          <transition name="notif-fade">
+            <div v-if="notificationsOpen" class="notif-dropdown">
+              <p v-if="notifications.length === 0" class="notif-empty">Сповіщень поки немає</p>
+              <ul v-else class="notif-list">
+                <li v-for="n in notifications" :key="n.id"
+                    class="notif-item" :class="{ 'notif-item--unread': !n.is_read }">
+                  <span class="notif-dot"
+                        :class="n.type === 'menstruation_soon' ? 'notif-dot--men' : 'notif-dot--ov'"></span>
+                  <div class="notif-body">
+                    <p class="notif-msg">
+                      {{ n.message }}
+                      <span v-if="daysUntilText(n.scheduled_date)" class="notif-soon">
+                        {{ daysUntilText(n.scheduled_date) }}
+                      </span>
+                    </p>
+                    <p class="notif-time">{{ formatNotifTime(n.created_at) }}</p>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </transition>
+        </div>
+        <button class="nav-btn nav-btn--filled" @click="handleProfile">Профіль</button>
       </div>
     </nav>
 
@@ -612,9 +831,10 @@ onBeforeUnmount(() => {
         <div v-for="day in allDays" :key="day.date"
              class="day-cell"
              :class="{
-               'day-cell--today':  day.is_today,
-               'day-cell--picked': !!pickingMode && day.date === pickedDay,
-               'day-cell--muted':  pickingMode === 'end' && !day.is_menstruation,
+               'day-cell--today':         day.is_today,
+               'day-cell--picked':        pickingMode !== 'delete' && !!pickingMode && day.date === pickedDay,
+               'day-cell--delete-picked': pickingMode === 'delete' && isInDeleteRange(day),
+               'day-cell--muted':         (pickingMode === 'end' || pickingMode === 'delete') && isDayMuted(day),
              }"
              @click="onDayClick(day)">
           <div class="day-circle">
@@ -667,11 +887,12 @@ onBeforeUnmount(() => {
       <button class="btn btn--outline" @click="handleSymptoms">Симптоми</button>
     </div>
 
-    <!-- Choose: start or end -->
+    <!-- Choose: start, end or delete -->
     <div v-else-if="choosingType" class="actions">
       <button class="btn btn--outline" @click="cancelPickingMode">Скасувати</button>
       <button class="btn btn--filled" @click="enterStartMode">Початок</button>
-      <button class="btn btn--outline" :disabled="!hasActivePeriod" @click="enterEndMode">Кінець</button>
+      <button class="btn btn--outline" :disabled="!canDelete" @click="enterEndMode">Кінець</button>
+      <button class="btn btn--outline btn--delete" :disabled="!canDelete" @click="enterDeleteMode">Видалити</button>
     </div>
 
     <!-- Picking mode actions -->
@@ -681,9 +902,13 @@ onBeforeUnmount(() => {
               :disabled="!pickedDay" @click="confirmStart">
         Підтвердити початок
       </button>
-      <button v-else class="btn btn--menstruation"
-              :disabled="!pickedDay" @click="confirmEnd">
+      <button v-else-if="pickingMode === 'end'" class="btn btn--menstruation"
+              :disabled="!pickedDay || !pickedCycleId" @click="confirmEnd">
         Підтвердити кінець
+      </button>
+      <button v-else class="btn btn--delete-confirm"
+              :disabled="!pickedCycleId" @click="confirmDelete">
+        Видалити менструацію
       </button>
     </div>
   </div>
@@ -798,6 +1023,11 @@ onBeforeUnmount(() => {
 .day-cell--picked .dc-num,
 .day-cell--picked .dc-sub              { color: #fff !important; }
 
+/* delete-picked: увесь діапазон видалення — темно-бордовий */
+.day-cell--delete-picked .day-circle   { background: #7a0000 !important; border-color: #7a0000 !important; }
+.day-cell--delete-picked .dc-num,
+.day-cell--delete-picked .dc-sub       { color: #fff !important; }
+
 /* end-mode: не-менструальні дні приглушені */
 .day-cell--muted                       { pointer-events: none; }
 .day-cell--muted .day-circle           { opacity: 0.22; }
@@ -863,8 +1093,74 @@ onBeforeUnmount(() => {
 .btn--outline      { background: transparent; color: #000; border: 2px solid #000; }
 .btn--menstruation { background: #D50000; color: #fff; border: none; }
 .btn--menstruation:disabled { background: rgba(213,0,0,.25); cursor: default; pointer-events: none; }
+.btn--delete       { color: #b00; border-color: #b00; }
+.btn--delete:disabled { opacity: .35; }
+.btn--delete-confirm { background: #7a0000; color: #fff; border: none; }
+.btn--delete-confirm:disabled { background: rgba(122,0,0,.25); cursor: default; pointer-events: none; }
 .btn--done    { background: rgba(0,0,0,.1); color: rgba(0,0,0,.4); border: none; cursor: default; }
 .btn:disabled { pointer-events: none; }
+
+/* ── Notifications ── */
+.notif-wrap { position: relative; }
+.notif-btn  { position: relative; }
+
+.notif-badge {
+  position: absolute; top: -7px; right: -7px;
+  min-width: 18px; height: 18px; border-radius: 9px;
+  background: #D50000; color: #fff;
+  font-family: 'Geist', sans-serif; font-size: 10px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px; pointer-events: none;
+  border: 2px solid #fff;
+}
+
+.notif-dropdown {
+  position: absolute; top: calc(100% + 10px); right: 0;
+  width: 310px; max-height: 400px; overflow-y: auto;
+  background: #fff; border: 1.5px solid #000; border-radius: 10px;
+  z-index: 200; box-shadow: 0 8px 30px rgba(0,0,0,.09);
+  scrollbar-width: thin;
+}
+
+.notif-empty {
+  padding: 32px 20px; text-align: center;
+  font-family: 'Geist', sans-serif; font-size: 13.5px;
+  color: rgba(0,0,0,.35); margin: 0;
+}
+
+.notif-list { list-style: none; margin: 0; padding: 4px 0; }
+
+.notif-item {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 11px 16px;
+  border-bottom: 1px solid rgba(0,0,0,.055);
+  transition: background .1s;
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-item--unread    { background: rgba(213,0,0,.028); }
+
+.notif-dot {
+  flex-shrink: 0; margin-top: 5px;
+  width: 7px; height: 7px; border-radius: 50%;
+}
+.notif-dot--men { background: #D50000; }
+.notif-dot--ov  { background: #FF34A7; }
+
+.notif-body { flex: 1; min-width: 0; }
+.notif-msg {
+  font-family: 'Geist', sans-serif; font-size: 13px;
+  color: #000; margin: 0 0 3px; line-height: 1.45;
+}
+.notif-soon { color: rgba(0,0,0,.42); font-size: 12px; }
+.notif-time {
+  font-family: 'Geist', sans-serif; font-size: 11px;
+  color: rgba(0,0,0,.36); margin: 0;
+}
+
+.notif-fade-enter-active,
+.notif-fade-leave-active { transition: opacity .14s, transform .14s; }
+.notif-fade-enter-from,
+.notif-fade-leave-to     { opacity: 0; transform: translateY(-5px); }
 
 @media (max-width: 860px) {
   .timeline-track { padding: 16px calc(50% - 76px); }

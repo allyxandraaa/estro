@@ -67,7 +67,6 @@ class AuthService:
             needs_onboarding=(
                 user.average_cycle_length is None
                 or user.average_period_length is None
-                or user.last_period_date is None
             ),
         )
 

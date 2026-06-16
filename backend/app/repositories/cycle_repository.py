@@ -68,3 +68,13 @@ class CycleRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def get_by_id(self, cycle_id: uuid.UUID, user_id: uuid.UUID) -> Cycle | None:
+        result = await self.db.execute(
+            select(Cycle).where(Cycle.id == cycle_id, Cycle.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_cycle(self, cycle: Cycle) -> None:
+        await self.db.delete(cycle)
+        await self.db.commit()
