@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.dependencies.auth import get_current_user_id
+from app.repositories.cycle_repository import CycleRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.onboarding import OnboardingRequest
 from app.services.onboarding_service import OnboardingService
@@ -15,8 +16,10 @@ router = APIRouter(prefix="/api/users", tags=["Onboarding"])
 def _get_onboarding_service(
     session: AsyncSession = Depends(get_session),
 ) -> OnboardingService:
-    repository = UserRepository(session)
-    return OnboardingService(repository)
+    return OnboardingService(
+        repository=UserRepository(session),
+        cycle_repository=CycleRepository(session),
+    )
 
 
 @router.post("/onboarding", status_code=status.HTTP_200_OK)

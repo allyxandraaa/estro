@@ -18,7 +18,11 @@ UID = uuid.uuid4()
 def _make_svc() -> OnboardingService:
     repo = AsyncMock()
     repo.update_user_profile.return_value = MagicMock()
-    return OnboardingService(repo)
+    cycle_repo = AsyncMock()
+    cycle_repo.get_active_cycle.return_value = None
+    cycle_repo.get_last_completed_cycles.return_value = []
+    cycle_repo.create_cycle.return_value = MagicMock()
+    return OnboardingService(repo, cycle_repo)
 
 
 # ── TC-03: OnboardingRequest схема ──────────────────────────────────────────

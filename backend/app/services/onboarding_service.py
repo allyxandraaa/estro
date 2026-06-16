@@ -1,6 +1,7 @@
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID
 
+from app.repositories.cycle_repository import CycleRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.onboarding import OnboardingRequest
 
@@ -9,8 +10,9 @@ DEFAULT_PERIOD_LENGTH = 5
 
 
 class OnboardingService:
-    def __init__(self, repository: UserRepository):
+    def __init__(self, repository: UserRepository, cycle_repository: CycleRepository):
         self._repository = repository
+        self._cycle_repository = cycle_repository
 
     async def save_onboarding(self, user_id: UUID, data: OnboardingRequest):
         is_calculated = False
@@ -43,5 +45,15 @@ class OnboardingService:
 
         if not user:
             raise ValueError("User not found")
+
+        # Create an initial Cycle record so the calendar has real data to show.
+        # Skip if the user already has cycles (re-onboarding case).
+        has_active = await self._cycle_repository.get_active_cycle(user_id)
+        has_completed = await self._cycle_repository.get_last_completed_cycles(user_id, limit=1)
+        if not has_active and not has_completed:
+            cycle = await self._cycle_repository.create_cycle(user_id, last_period_date)
+            expected_end = last_period_date + timedelta(days=period_length - 1)
+            if expected_end < date.today():
+                await self._cycle_repository.close_cycle(cycle, expected_end)
 
         return user
