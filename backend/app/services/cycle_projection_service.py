@@ -261,7 +261,7 @@ class CycleProjectionService:
                 if proj.predicted_start_date in known_cycle_starts:
                     continue
 
-                if proj.predicted_start_date <= current_date <= proj.predicted_end_date and current_date >= today:
+                if proj.predicted_start_date <= current_date <= proj.predicted_end_date and proj.predicted_end_date >= today:
                     is_menstruation_predicted = True
                 if current_date == proj.predicted_ovulation_date and current_date >= today:
                     is_ovulation_predicted = True

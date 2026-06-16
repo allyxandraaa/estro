@@ -239,17 +239,33 @@ async def test_short_cycle_ovulation_precedes_start():
 
 
 async def test_past_days_not_marked_predicted():
-    """BUG-05 fixed: минулі дні не мають is_menstruation_predicted."""
-    yesterday = date.today() - timedelta(days=1)
-    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=yesterday), [])
+    """BUG-05 fixed: прогнозована менструація, що вже ЗАВЕРШИЛАСЬ, не відображається на минулих днях.
+    base=сьогодні-8, period=5: прогноз закінчився 4 дні тому → вчорашній день поза вікном.
+    """
+    base = date.today() - timedelta(days=8)
+    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=base), [])
 
     data = await svc.get_calendar_month(UID, month=date.today().month, year=date.today().year)
-    yesterday_str = yesterday.isoformat()
+    yesterday_str = (date.today() - timedelta(days=1)).isoformat()
     yesterday_day = next((d for d in data["days"] if d["date"] == yesterday_str), None)
 
     assert yesterday_day is not None, "Вчорашній день має бути в календарі"
     assert not yesterday_day["is_menstruation_predicted"], (
-        "BUG-05 fixed: вчорашній день НЕ має бути is_menstruation_predicted"
+        "BUG-05 fixed: завершена прогнозована менструація НЕ має показуватись"
+    )
+
+
+async def test_ongoing_predicted_period_shows_past_days():
+    """Якщо прогнозований цикл почався вчора і ще не завершився — вчорашній день позначається."""
+    yesterday = date.today() - timedelta(days=1)
+    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=yesterday), [])
+
+    data = await svc.get_calendar_month(UID, month=date.today().month, year=date.today().year)
+    yesterday_day = next((d for d in data["days"] if d["date"] == yesterday.isoformat()), None)
+
+    assert yesterday_day is not None
+    assert yesterday_day["is_menstruation_predicted"], (
+        "Якщо прогнозована менструація ще триває, вчорашній день теж має бути позначений"
     )
 
 
