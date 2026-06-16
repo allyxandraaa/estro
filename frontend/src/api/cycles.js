@@ -11,3 +11,11 @@ export function startCycle(date) {
 export function endCycle(date) {
   return client.post('/cycles/end', { date })
 }
+
+export function deleteCycle(cycleId) {
+  return client.delete(`/cycles/${cycleId}`)
+}
+
+export function updateCycleEnd(cycleId, date) {
+  return client.patch(`/cycles/${cycleId}/end`, { date })
+}
