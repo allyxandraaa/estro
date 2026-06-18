@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth.js'
+import { getToken } from '../api/auth-storage.js'
 import { getProfile, updateProfile } from '../api/profile.js'
 import logoUrl from '../assets/logo.svg'
 import profileStarOutlineUrl from '../assets/profile-star-outline.svg'
@@ -19,6 +20,7 @@ const profile = reactive({
 
 const initialProfile = ref(null)
 const loading = ref(true)
+const pdfLoading = ref(false)
 const message = ref('')
 const error = ref('')
 const fieldErrors = reactive({
@@ -141,11 +143,60 @@ async function doLogout() {
   router.push({ name: 'login' })
 }
 
-function downloadSymptoms() {
-  message.value = 'Історія симптомів поки недоступна'
-  window.setTimeout(() => {
-    message.value = ''
-  }, 1800)
+function toDateParam(value) {
+  const y = value.getFullYear()
+  const m = String(value.getMonth() + 1).padStart(2, '0')
+  const d = String(value.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function apiUrl(path) {
+  const base = import.meta.env.VITE_API_BASE_URL ?? '/api'
+  return `${base}${path}`
+}
+
+async function downloadSymptoms() {
+  if (pdfLoading.value) return
+  pdfLoading.value = true
+  error.value = ''
+  message.value = ''
+
+  try {
+    const latestProfile = await getProfile()
+    if (latestProfile?.has_cycles === false) {
+      message.value = 'Немає циклів для експорту'
+      return
+    }
+
+    const dateTo = new Date()
+    const dateFrom = new Date(dateTo)
+    dateFrom.setDate(dateFrom.getDate() - 365)
+
+    const params = new URLSearchParams({
+      date_from: toDateParam(dateFrom),
+      date_to: toDateParam(dateTo),
+    })
+    const headers = {}
+    const token = getToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+
+    const res = await fetch(apiUrl(`/daily-logs/export?${params.toString()}`), { headers })
+    if (!res.ok) throw new Error('PDF export failed')
+
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'cycle_log.pdf'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } catch {
+    error.value = 'Не вдалося сформувати PDF'
+  } finally {
+    pdfLoading.value = false
+  }
 }
 
 onMounted(loadProfile)
@@ -220,8 +271,9 @@ onBeforeRouteLeave(async () => {
         <div class="bottom-actions">
           <button class="action-btn action-btn--outline" @click="goBack">Назад</button>
           <button class="action-btn action-btn--dark" @click="doLogout">Вийти</button>
-          <button class="action-btn action-btn--dark action-btn--wide" @click="downloadSymptoms">
-            Завантажити історію симптомів
+          <button class="action-btn action-btn--dark action-btn--wide" :disabled="pdfLoading" @click="downloadSymptoms">
+            <span v-if="pdfLoading" class="spinner" aria-hidden="true"></span>
+            {{ pdfLoading ? 'Формування PDF...' : 'Завантажити PDF' }}
           </button>
         </div>
       </section>
@@ -326,6 +378,22 @@ onBeforeRouteLeave(async () => {
   background: transparent;
   color: #000;
   border: 2px solid #000;
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .profile-shell {
