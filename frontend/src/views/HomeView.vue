@@ -156,8 +156,34 @@ function _daysWord(n) {
   return 'днів'
 }
 
+function applyCurrentPhase(data) {
+  if (data?.delay != null) {
+    const daysDelayed = data.delay.days_delayed
+    const delayDay = daysDelayed + 1
+    const delayText = daysDelayed === 0
+      ? 'сьогодні'
+      : `${daysDelayed} ${_daysWord(daysDelayed)} тому`
+    currentPhase.value = 'Затримка'
+    todayPhase.value = 'Затримка'
+    phaseSubtitle.value = `День ${delayDay} · очікувалась ${delayText} · ${data.delay.expected_start_date}`
+    todaySubtitle.value = phaseSubtitle.value
+    return
+  }
+
+  currentPhase.value  = data?.current_phase  ?? ''
+  todayPhase.value    = data?.current_phase  ?? ''
+  phaseSubtitle.value = data?.phase_subtitle ?? ''
+  todaySubtitle.value = data?.phase_subtitle ?? ''
+}
+
 function _phaseForDay(day, idx) {
   if (!dataLoaded.value) return
+
+  if (day.is_delay && day.delay_day) {
+    currentPhase.value = 'Затримка'
+    phaseSubtitle.value = `День ${day.delay_day} — менструація ще не відмічена`
+    return
+  }
 
   if (day.is_today) {
     currentPhase.value  = todayPhase.value
@@ -669,10 +695,7 @@ async function refreshData() {
   try {
     const result = await getCalendarView(cm, cy)
     const data = result?.days ? result : (result?.data ?? {})
-    currentPhase.value  = data.current_phase  ?? ''
-    todayPhase.value    = data.current_phase  ?? ''
-    phaseSubtitle.value = data.phase_subtitle ?? ''
-    todaySubtitle.value = data.phase_subtitle ?? ''
+    applyCurrentPhase(data)
     activeCycle.value = data.active_cycle ?? null
     if (data.completed_cycles) completedCycles.value = data.completed_cycles
     if (data.days) mergeApiDays(data.days)
@@ -819,14 +842,7 @@ async function loadCalendar() {
   try {
     const result = await getCalendarView(cm, cy)
     const data   = result?.days ? result : (result?.data ?? {})
-    if (data.current_phase) {
-      currentPhase.value = data.current_phase
-      todayPhase.value   = data.current_phase
-    }
-    if (data.phase_subtitle) {
-      phaseSubtitle.value = data.phase_subtitle
-      todaySubtitle.value = data.phase_subtitle
-    }
+    applyCurrentPhase(data)
     activeCycle.value = data.active_cycle ?? null
     if (data.completed_cycles) completedCycles.value = data.completed_cycles
     if (data.days)             mergeApiDays(data.days)

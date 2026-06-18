@@ -62,7 +62,37 @@ class NotificationService:
             active_start=active_cycle.start_date if active_cycle else None,
         )
 
+        delayed_candidates = [
+            p for p in projections
+            if p.predicted_start_date <= today
+            and (
+                active_cycle is None
+                or p.predicted_start_date > active_cycle.start_date
+            )
+        ]
+        delayed_proj = max(delayed_candidates, key=lambda p: p.predicted_start_date, default=None)
+        if delayed_proj:
+            days_delayed = (today - delayed_proj.predicted_start_date).days
+            delay_day = days_delayed + 1
+            delay_text = (
+                "1 день затримки"
+                if delay_day == 1
+                else f"{delay_day} {self._proj._days_word(delay_day)} затримки"
+            )
+            await self._notif.upsert(
+                user_id=user_id,
+                type_="menstruation_delayed",
+                scheduled_date=today,
+                message=(
+                    f"Затримка: {delay_text}. "
+                    f"Менструація очікувалась {_fmt(delayed_proj.predicted_start_date)}"
+                ),
+            )
+
         for proj in projections:
+            if delayed_proj and proj.predicted_start_date <= delayed_proj.predicted_start_date:
+                continue
+
             # Менструація: якщо старт прогнозу в межах 1..WINDOW_DAYS днів
             days_to_men = (proj.predicted_start_date - today).days
             if 1 <= days_to_men <= WINDOW_DAYS:
