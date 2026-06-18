@@ -36,6 +36,12 @@ const routes = [
     component: () => import('../views/ProfileView.vue'),
     meta: { requiresAuth: true, title: 'Профіль' },
   },
+  {
+    path: '/daily-logs',
+    name: 'symptoms',
+    component: () => import('../views/DailyLogsView.vue'),
+    meta: { requiresAuth: true, title: 'Daily logs' },
+  },
   { path: '/:pathMatch(.*)*', redirect: '/login' },
 ]
 

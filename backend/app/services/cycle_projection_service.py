@@ -323,10 +323,23 @@ class CycleProjectionService:
 
         current_phase, phase_subtitle = self._determine_current_phase(active_cycle, projections, active_display_period)
 
+        delay = None
+        if not active_cycle:
+            delayed_proj = next(
+                (p for p in projections if p.predicted_start_date < today),
+                None,
+            )
+            if delayed_proj:
+                delay = {
+                    "days_delayed": (today - delayed_proj.predicted_start_date).days,
+                    "expected_start_date": delayed_proj.predicted_start_date.isoformat(),
+                }
+
         return {
             "days": days,
             "current_phase": current_phase,
             "phase_subtitle": phase_subtitle,
+            "delay": delay,
             "active_cycle": {
                 "id": str(active_cycle.id),
                 "start_date": active_cycle.start_date.isoformat(),
