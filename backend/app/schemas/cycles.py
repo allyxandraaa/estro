@@ -18,12 +18,18 @@ class ActiveCycleSchema(BaseModel):
     end_date: Optional[date] = None
 
 
+class DelayStatus(BaseModel):
+    days_delayed: int
+    expected_start_date: date
+
+
 class CalendarViewResponse(BaseModel):
     days: list[CalendarDaySchema]
     current_phase: str
     phase_subtitle: str
     active_cycle: Optional[ActiveCycleSchema] = None
     completed_cycles: list[ActiveCycleSchema] = []
+    delay: Optional[DelayStatus] = None
 
 
 class StartCycleRequest(BaseModel):
