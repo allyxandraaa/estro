@@ -8,6 +8,7 @@ class ProfileResponse(BaseModel):
     email: str
     average_cycle_length: Optional[int] = None
     average_period_length: Optional[int] = None
+    has_cycles: bool = False
 
     model_config = {"from_attributes": True}
 

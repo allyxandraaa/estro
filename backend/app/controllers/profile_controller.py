@@ -27,6 +27,7 @@ async def _profile_response(user, session: AsyncSession) -> ProfileResponse:
         email=user.email,
         average_cycle_length=cycle_length,
         average_period_length=period_length,
+        has_cycles=bool(active or completed),
     )
 
 

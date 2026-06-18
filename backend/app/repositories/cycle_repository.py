@@ -91,6 +91,20 @@ class CycleRepository:
         )
         return list(result.scalars().all())
 
+    async def get_overlapping_range(
+        self, user_id: uuid.UUID, date_from: date, date_to: date
+    ) -> list[Cycle]:
+        result = await self.db.execute(
+            select(Cycle)
+            .where(
+                Cycle.user_id == user_id,
+                Cycle.start_date <= date_to,
+                or_(Cycle.end_date >= date_from, Cycle.end_date.is_(None)),
+            )
+            .order_by(Cycle.start_date.asc())
+        )
+        return list(result.scalars().all())
+
     async def get_by_id(self, cycle_id: uuid.UUID, user_id: uuid.UUID) -> Cycle | None:
         result = await self.db.execute(
             select(Cycle).where(Cycle.id == cycle_id, Cycle.user_id == user_id)

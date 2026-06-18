@@ -13,3 +13,4 @@ python-dotenv==1.0.1
 alembic==1.13.3
 psycopg2-binary==2.9.9
 pydantic[email]
+reportlab==4.2.5
