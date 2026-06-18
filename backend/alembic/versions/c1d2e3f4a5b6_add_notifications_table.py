@@ -1,7 +1,7 @@
 """add_notifications_table
 
-Revision ID: a1b2c3d4e5f6
-Revises: f1a2b3c4d5e6
+Revision ID: c1d2e3f4a5b6
+Revises: b3c4d5e6f7a2
 Create Date: 2026-06-16
 
 """
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
-revision: str = 'a1b2c3d4e5f6'
-down_revision: Union[str, None] = 'f1a2b3c4d5e6'
+revision: str = 'c1d2e3f4a5b6'
+down_revision: Union[str, None] = 'b3c4d5e6f7a2'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

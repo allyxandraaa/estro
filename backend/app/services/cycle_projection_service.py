@@ -42,7 +42,7 @@ class CycleProjectionService:
 
         # Тривалість циклу та вікно Огіно-Кнауса
         cycle_length, period_length, use_ogino, min_cycle, max_cycle = self._compute_cycle_params(
-            user, completed_cycles
+            user, completed_cycles, active_start=active_start
         )
         today = date.today()
 
@@ -89,29 +89,47 @@ class CycleProjectionService:
 
     @staticmethod
     def _compute_cycle_params(
-        user, completed_cycles: list
+        user, completed_cycles: list, active_start: date | None = None
     ) -> tuple[int, int, bool, int, int]:
-        """Повертає (cycle_length, period_length, use_ogino, min_cycle, max_cycle)."""
+        """Повертає (cycle_length, period_length, use_ogino, min_cycle, max_cycle).
+
+        active_start — дата початку відкритого циклу; включається в розрахунок
+        cycle_length щоб не втрачати реальний проміжок між циклами.
+        """
         use_ogino = False
         min_cycle = max_cycle = 0
-        if user.is_calculated_default or len(completed_cycles) < 3:
-            cycle_length = user.average_cycle_length or 28
-        else:
-            sorted_c = sorted(completed_cycles, key=lambda c: c.start_date)
-            diffs = [
-                (sorted_c[i + 1].start_date - sorted_c[i].start_date).days
-                for i in range(len(sorted_c) - 1)
-            ]
+
+        all_starts = sorted(
+            [c.start_date for c in completed_cycles] + ([active_start] if active_start else [])
+        )
+        if len(all_starts) >= 2:
+            diffs = [(all_starts[i + 1] - all_starts[i]).days for i in range(len(all_starts) - 1)]
             positive_diffs = [d for d in diffs if d > 0]
-            if not positive_diffs:
-                cycle_length = user.average_cycle_length or 28
-            else:
+            if positive_diffs:
                 cycle_length = round(sum(positive_diffs) / len(positive_diffs))
                 if len(positive_diffs) >= 5:
                     use_ogino = True
                     min_cycle = min(positive_diffs)
                     max_cycle = max(positive_diffs)
-        period_length = user.average_period_length or 5
+            else:
+                cycle_length = user.average_cycle_length or 28
+        else:
+            cycle_length = user.average_cycle_length or 28
+
+        seed_period = user.average_period_length or 5
+        durations = [
+            (c.end_date - c.start_date).days + 1
+            for c in completed_cycles if c.end_date
+        ]
+        # Активний цикл закриється з seed-тривалістю якщо юзер не виправить —
+        # включаємо її вже зараз щоб статистика відповідала тому що показується.
+        if active_start is not None:
+            durations.append(seed_period)
+        if durations:
+            period_length = round(sum(durations) / len(durations))
+        else:
+            period_length = seed_period
+
         return cycle_length, period_length, use_ogino, min_cycle, max_cycle
 
     @staticmethod
@@ -205,11 +223,17 @@ class CycleProjectionService:
             c for c in recent
             if c.end_date and c.start_date <= until and c.end_date >= month_start
         ]
-        last_completed = recent[0] if recent else None
         user = await self.user_repository.get_by_id(user_id)
         cycle_length, period_length, _, _, _ = (
-            self._compute_cycle_params(user, recent) if user else (28, 5, False, 0, 0)
+            self._compute_cycle_params(
+                user, recent,
+                active_start=active_cycle.start_date if active_cycle else None,
+            ) if user else (28, 5, False, 0, 0)
         )
+        # Для відображення поточної менструації активного циклу використовуємо
+        # стабільне seed-значення, щоб редагування історичних циклів не змінювало
+        # кількість підсвічених днів поточної менструації.
+        active_display_period = (user.average_period_length or 5) if user else 5
         today = date.today()
 
         # Стартові дати завершених циклів — проекції, що збігаються з ними, є історичними, а не прогнозом
@@ -240,9 +264,9 @@ class CycleProjectionService:
             current_date = date(year, month, day)
 
             is_menstruation = False
-            # Активний (відкритий) цикл — очікуваний кінець як реальна менструація
+            # Активний (відкритий) цикл — очікуваний кінець на основі seed-значення
             if active_cycle and active_cycle.end_date is None:
-                expected_end = active_cycle.start_date + timedelta(days=period_length - 1)
+                expected_end = active_cycle.start_date + timedelta(days=active_display_period - 1)
                 if active_cycle.start_date <= current_date <= expected_end:
                     is_menstruation = True
             # Завершені цикли цього місяця — реальна менструація з БД
@@ -261,7 +285,16 @@ class CycleProjectionService:
                 if proj.predicted_start_date in known_cycle_starts:
                     continue
 
-                if proj.predicted_start_date <= current_date <= proj.predicted_end_date and current_date >= today:
+                # Менструація активного циклу відображається через is_menstruation —
+                # predicted для його ж стартової дати не ставимо (уникаємо конфлікту
+                # між active_display_period і обчисленим period_length)
+                is_active_proj = (
+                    active_cycle is not None
+                    and proj.predicted_start_date == active_cycle.start_date
+                )
+                if (not is_active_proj
+                        and proj.predicted_start_date <= current_date <= proj.predicted_end_date
+                        and proj.predicted_end_date >= today):
                     is_menstruation_predicted = True
                 if current_date == proj.predicted_ovulation_date and current_date >= today:
                     is_ovulation_predicted = True
@@ -288,7 +321,7 @@ class CycleProjectionService:
                 "is_fertile_window": is_fertile_window,
             })
 
-        current_phase, phase_subtitle = self._determine_current_phase(active_cycle, projections, period_length)
+        current_phase, phase_subtitle = self._determine_current_phase(active_cycle, projections, active_display_period)
 
         return {
             "days": days,

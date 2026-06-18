@@ -91,6 +91,19 @@ async def test_rolling_average_with_3_cycles():
 # ── Огіно-Кнаус ─────────────────────────────────────────────────────────────
 
 
+async def test_historical_cycles_override_calculated_defaults():
+    """Historical cycle starts should drive projections even when profile values came from defaults."""
+    starts = [date(2026, 1, 1), date(2026, 1, 25), date(2026, 2, 20), date(2026, 3, 18)]
+    cycles = [_cycle(starts[i], starts[i] + timedelta(days=4)) for i in range(4)]
+    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True), cycles)
+
+    user = await svc.user_repository.get_by_id(UID)
+    cycle_length, _, use_ogino, _, _ = svc._compute_cycle_params(user, cycles)
+
+    assert cycle_length == 25
+    assert not use_ogino
+
+
 async def test_ogino_activates_at_6_cycles():
     """6 завершених циклів (5 дифів) → фертильне вікно присутнє."""
     base = date(2025, 1, 1)
@@ -102,6 +115,21 @@ async def test_ogino_activates_at_6_cycles():
 
     assert future, "Очікується хоча б один майбутній прогноз"
     assert future[0].fertile_window_start is not None, "Огіно-Кнаус має бути при 6 циклах"
+
+
+async def test_ogino_activates_for_six_historical_cycles_with_default_profile():
+    """Six marked historical periods should enable fertile-window marking even before manual profile edits."""
+    base = date(2025, 1, 1)
+    cycles = [_cycle(base + timedelta(days=28 * i), base + timedelta(days=28 * i + 4)) for i in range(6)]
+    svc = _svc(_user(is_default=True), cycles)
+
+    user = await svc.user_repository.get_by_id(UID)
+    cycle_length, _, use_ogino, min_cycle, max_cycle = svc._compute_cycle_params(user, cycles)
+
+    assert cycle_length == 28
+    assert use_ogino
+    assert min_cycle == 28
+    assert max_cycle == 28
 
 
 async def test_ogino_not_active_at_5_cycles():
@@ -164,6 +192,19 @@ async def test_active_cycle_marks_full_expected_period():
 
     for expected in ["2026-06-11", "2026-06-12", "2026-06-13", "2026-06-14", "2026-06-15"]:
         assert expected in real_days, f"{expected} має бути реальною менструацією"
+
+
+async def test_completed_cycles_keep_stored_lengths_after_short_edit():
+    shortened = _cycle(date(2026, 4, 1), date(2026, 4, 3))
+    normal = _cycle(date(2026, 4, 29), date(2026, 5, 3))
+    svc = _svc(_user(cycle_length=28, period_length=3, is_default=False), [normal, shortened])
+
+    data = await svc.get_calendar_month(UID, month=5, year=2026)
+    by_date = {d["date"]: d for d in data["days"]}
+
+    for expected in ["2026-05-01", "2026-05-02", "2026-05-03"]:
+        assert by_date[expected]["is_menstruation"]
+        assert not by_date[expected]["is_menstruation_predicted"]
 
 
 # ── TC-07/TC-08: валідація дат ───────────────────────────────────────────────
@@ -239,17 +280,33 @@ async def test_short_cycle_ovulation_precedes_start():
 
 
 async def test_past_days_not_marked_predicted():
-    """BUG-05 fixed: минулі дні не мають is_menstruation_predicted."""
-    yesterday = date.today() - timedelta(days=1)
-    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=yesterday), [])
+    """BUG-05 fixed: прогнозована менструація, що вже ЗАВЕРШИЛАСЬ, не відображається на минулих днях.
+    base=сьогодні-8, period=5: прогноз закінчився 4 дні тому → вчорашній день поза вікном.
+    """
+    base = date.today() - timedelta(days=8)
+    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=base), [])
 
     data = await svc.get_calendar_month(UID, month=date.today().month, year=date.today().year)
-    yesterday_str = yesterday.isoformat()
+    yesterday_str = (date.today() - timedelta(days=1)).isoformat()
     yesterday_day = next((d for d in data["days"] if d["date"] == yesterday_str), None)
 
     assert yesterday_day is not None, "Вчорашній день має бути в календарі"
     assert not yesterday_day["is_menstruation_predicted"], (
-        "BUG-05 fixed: вчорашній день НЕ має бути is_menstruation_predicted"
+        "BUG-05 fixed: завершена прогнозована менструація НЕ має показуватись"
+    )
+
+
+async def test_ongoing_predicted_period_shows_past_days():
+    """Якщо прогнозований цикл почався вчора і ще не завершився — вчорашній день позначається."""
+    yesterday = date.today() - timedelta(days=1)
+    svc = _svc(_user(cycle_length=28, period_length=5, is_default=True, last_period_date=yesterday), [])
+
+    data = await svc.get_calendar_month(UID, month=date.today().month, year=date.today().year)
+    yesterday_day = next((d for d in data["days"] if d["date"] == yesterday.isoformat()), None)
+
+    assert yesterday_day is not None
+    assert yesterday_day["is_menstruation_predicted"], (
+        "Якщо прогнозована менструація ще триває, вчорашній день теж має бути позначений"
     )
 
 

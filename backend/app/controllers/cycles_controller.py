@@ -41,15 +41,22 @@ async def start_cycle(
 ):
     cycle_repo = CycleRepository(session)
     user_repo = UserRepository(session)
+    user = await user_repo.get_by_id(user_id)
+    period_length = (user.average_period_length if user else None) or 5
 
     active_cycle = await cycle_repo.get_active_cycle(user_id)
+    containing_cycle = await cycle_repo.get_cycle_containing_date(user_id, body.date)
+    if containing_cycle and (not active_cycle or containing_cycle.id != active_cycle.id):
+        return StartCycleResponse(
+            id=str(containing_cycle.id),
+            start_date=containing_cycle.start_date,
+            end_date=containing_cycle.end_date,
+        )
+
     if active_cycle:
-        user = await user_repo.get_by_id(user_id)
-        period_length = (user.average_period_length if user else None) or 5
         expected_end = active_cycle.start_date + timedelta(days=period_length - 1)
 
         if active_cycle.start_date <= body.date <= expected_end:
-            # Корекція: нова дата всередині очікуваного вікна — правимо старт
             cycle = await cycle_repo.update_start(active_cycle, body.date)
             await user_repo.update_fields(user_id, {"last_period_date": body.date})
             return StartCycleResponse(
@@ -59,24 +66,49 @@ async def start_cycle(
             )
 
         if body.date < active_cycle.start_date:
-            # Історична дата: створюємо завершений цикл, не чіпаємо активний
+            next_cycle = await cycle_repo.get_next_cycle(user_id, body.date)
             hist_end = min(
                 body.date + timedelta(days=period_length - 1),
-                active_cycle.start_date - timedelta(days=1),
+                next_cycle.start_date - timedelta(days=1) if next_cycle else active_cycle.start_date - timedelta(days=1),
             )
-            hist_cycle = await cycle_repo.create_cycle(user_id, body.date)
-            await cycle_repo.close_cycle(hist_cycle, hist_end)
+            hist_cycle = await cycle_repo.create_closed_cycle(user_id, body.date, hist_end)
             return StartCycleResponse(
                 id=str(hist_cycle.id),
                 start_date=hist_cycle.start_date,
                 end_date=hist_cycle.end_date,
             )
 
-        # Новий цикл: закриваємо попередній і відкриваємо новий атомарно
+        next_cycle = await cycle_repo.get_next_cycle(user_id, active_cycle.start_date)
+        if next_cycle and body.date >= next_cycle.start_date:
+            if body.date == next_cycle.start_date:
+                return StartCycleResponse(
+                    id=str(next_cycle.id),
+                    start_date=next_cycle.start_date,
+                    end_date=next_cycle.end_date,
+                )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Дата початку перекривається з наступним циклом",
+            )
+
         implied_end = min(expected_end, body.date - timedelta(days=1))
         cycle = await cycle_repo.close_and_create_cycle(active_cycle, implied_end, user_id, body.date)
     else:
+        next_cycle = await cycle_repo.get_next_cycle(user_id, body.date)
+        if next_cycle:
+            hist_end = min(
+                body.date + timedelta(days=period_length - 1),
+                next_cycle.start_date - timedelta(days=1),
+            )
+            cycle = await cycle_repo.create_closed_cycle(user_id, body.date, hist_end)
+            return StartCycleResponse(
+                id=str(cycle.id),
+                start_date=cycle.start_date,
+                end_date=cycle.end_date,
+            )
+
         cycle = await cycle_repo.create_cycle(user_id, body.date)
+
     await user_repo.update_fields(user_id, {"last_period_date": body.date})
 
     return StartCycleResponse(
@@ -115,14 +147,6 @@ async def end_cycle(
 
     cycle = await cycle_repo.close_cycle(active_cycle, body.date)
 
-    # Оновлюємо середню тривалість менструації з реальних даних
-    user_repo = UserRepository(session)
-    completed = await cycle_repo.get_last_completed_cycles(user_id, limit=6)
-    if completed:
-        lengths = [(c.end_date - c.start_date).days + 1 for c in completed if c.end_date]
-        if lengths:
-            await user_repo.update_fields(user_id, {"average_period_length": round(sum(lengths) / len(lengths))})
-
     return StartCycleResponse(
         id=str(cycle.id),
         start_date=cycle.start_date,
@@ -138,6 +162,7 @@ async def update_cycle_end(
     session: AsyncSession = Depends(get_session),
 ):
     cycle_repo = CycleRepository(session)
+
     cycle = await cycle_repo.get_by_id(cycle_id, user_id)
     if not cycle:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Цикл не знайдено")
@@ -146,14 +171,14 @@ async def update_cycle_end(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Дата завершення не може бути раніше дати початку циклу",
         )
-    updated = await cycle_repo.close_cycle(cycle, body.date)
+    next_cycle = await cycle_repo.get_next_cycle(user_id, cycle.start_date)
+    if next_cycle and body.date >= next_cycle.start_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Дата завершення перекривається з наступним циклом",
+        )
 
-    user_repo = UserRepository(session)
-    completed = await cycle_repo.get_last_completed_cycles(user_id, limit=6)
-    if completed:
-        lengths = [(c.end_date - c.start_date).days + 1 for c in completed if c.end_date]
-        if lengths:
-            await user_repo.update_fields(user_id, {"average_period_length": round(sum(lengths) / len(lengths))})
+    updated = await cycle_repo.close_cycle(cycle, body.date)
 
     return StartCycleResponse(
         id=str(updated.id),
@@ -177,22 +202,7 @@ async def delete_cycle(
 
     await cycle_repo.delete_cycle(cycle)
 
-    # Перераховуємо середню тривалість менструації
-    completed = await cycle_repo.get_last_completed_cycles(user_id, limit=6)
-    updates: dict = {}
-    if completed:
-        lengths = [(c.end_date - c.start_date).days + 1 for c in completed if c.end_date]
-        if lengths:
-            updates["average_period_length"] = round(sum(lengths) / len(lengths))
-
-    # Оновлюємо last_period_date з останнього циклу, що залишився
+    completed = await cycle_repo.get_last_completed_cycles(user_id, limit=24)
     active = await cycle_repo.get_active_cycle(user_id)
-    if active:
-        updates["last_period_date"] = active.start_date
-    elif completed:
-        updates["last_period_date"] = completed[0].start_date
-    else:
-        updates["last_period_date"] = None
-
-    if updates:
-        await user_repo.update_fields(user_id, updates)
+    last_period = active.start_date if active else (completed[0].start_date if completed else None)
+    await user_repo.update_fields(user_id, {"last_period_date": last_period})

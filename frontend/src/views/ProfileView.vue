@@ -24,25 +24,9 @@ const error = ref('')
 const fieldErrors = reactive({
   name: '',
   email: '',
-  cycle: '',
-  period: '',
 })
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-const cycleLength = computed({
-  get: () => profile.average_cycle_length ?? '',
-  set: (value) => {
-    profile.average_cycle_length = value === '' ? null : Number(value)
-  },
-})
-
-const periodLength = computed({
-  get: () => profile.average_period_length ?? '',
-  set: (value) => {
-    profile.average_period_length = value === '' ? null : Number(value)
-  },
-})
 
 function applyProfile(data) {
   profile.name = data.name ?? ''
@@ -87,10 +71,6 @@ function clearFieldError(field) {
   if (!Object.values(fieldErrors).some(Boolean)) error.value = ''
 }
 
-function isWholeNumber(value) {
-  return Number.isInteger(Number(value))
-}
-
 function validateName() {
   const value = profile.name.trim()
   if (!value) return setFieldError('name', "Ім'я не може бути порожнім")
@@ -104,35 +84,6 @@ function validateEmail() {
   if (!value) return setFieldError('email', 'E-mail не може бути порожнім')
   if (!EMAIL_RE.test(value)) return setFieldError('email', 'Введіть коректний e-mail')
   clearFieldError('email')
-  return true
-}
-
-function validateCycleLength() {
-  const value = profile.average_cycle_length
-  if (value === null || value === '') return setFieldError('cycle', 'Вкажіть середню тривалість циклу')
-  if (!isWholeNumber(value)) return setFieldError('cycle', 'Тривалість циклу має бути цілим числом')
-  if (Number(value) < 1 || Number(value) > 90) {
-    return setFieldError('cycle', 'Тривалість циклу має бути від 1 до 90 днів')
-  }
-  clearFieldError('cycle')
-  return true
-}
-
-function validatePeriodLength() {
-  const value = profile.average_period_length
-  if (value === null || value === '') return setFieldError('period', 'Вкажіть середню тривалість менструації')
-  if (!isWholeNumber(value)) return setFieldError('period', 'Тривалість менструації має бути цілим числом')
-  if (Number(value) < 1 || Number(value) > 20) {
-    return setFieldError('period', 'Тривалість менструації має бути від 1 до 20 днів')
-  }
-  if (
-    profile.average_cycle_length !== null &&
-    isWholeNumber(profile.average_cycle_length) &&
-    Number(value) >= Number(profile.average_cycle_length)
-  ) {
-    return setFieldError('period', 'Тривалість менструації має бути меншою за тривалість циклу')
-  }
-  clearFieldError('period')
   return true
 }
 
@@ -151,17 +102,6 @@ function collectProfileChanges() {
   if (email !== initialProfile.value.email) {
     if (!validateEmail()) return null
     changes.email = email
-  }
-
-  if (profile.average_cycle_length !== initialProfile.value.average_cycle_length) {
-    if (!validateCycleLength()) return null
-    if (profile.average_period_length !== null && !validatePeriodLength()) return null
-    changes.average_cycle_length = profile.average_cycle_length
-  }
-
-  if (profile.average_period_length !== initialProfile.value.average_period_length) {
-    if (!validatePeriodLength()) return null
-    changes.average_period_length = profile.average_period_length
   }
 
   return changes
@@ -267,40 +207,14 @@ onBeforeRouteLeave(async () => {
 
         <div class="metrics">
           <div class="metric-block">
-            <label for="cycle-length">Середня тривалість циклу:</label>
-            <div class="number-row">
-              <input
-                id="cycle-length"
-                v-model="cycleLength"
-                :disabled="loading"
-                :aria-invalid="!!fieldErrors.cycle"
-                type="number"
-                min="1"
-                max="90"
-                @input="clearFieldError('cycle')"
-              />
-              <span>днів</span>
-            </div>
-            <p v-if="fieldErrors.cycle" class="field-error">{{ fieldErrors.cycle }}</p>
+            <span class="metric-label">Середня тривалість циклу</span>
+            <span class="metric-value">{{ profile.average_cycle_length ?? '—' }} <span class="metric-unit">днів</span></span>
           </div>
-
           <div class="metric-block">
-            <label for="period-length">Середня тривалість менструації:</label>
-            <div class="number-row">
-              <input
-                id="period-length"
-                v-model="periodLength"
-                :disabled="loading"
-                :aria-invalid="!!fieldErrors.period"
-                type="number"
-                min="1"
-                max="20"
-                @input="clearFieldError('period')"
-              />
-              <span>днів</span>
-            </div>
-            <p v-if="fieldErrors.period" class="field-error">{{ fieldErrors.period }}</p>
+            <span class="metric-label">Середня тривалість менструації</span>
+            <span class="metric-value">{{ profile.average_period_length ?? '—' }} <span class="metric-unit">днів</span></span>
           </div>
+          <p class="metrics-note">Розраховується автоматично з вашої реальної статистики циклів.</p>
         </div>
 
         <div class="bottom-actions">
@@ -502,25 +416,40 @@ input:disabled {
 .metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 34px;
+  gap: 24px 34px;
   margin-top: 24px;
   max-width: 610px;
 }
 
-.number-row {
+.metric-block {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.number-row input {
-  width: 76px;
-  padding: 0 10px;
-  text-align: center;
+.metric-label {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.55);
 }
 
-.number-row span {
-  font-size: 17px;
+.metric-value {
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-size: 42px;
+  line-height: 1;
+  font-weight: 400;
+}
+
+.metric-unit {
+  font-family: 'Geist', sans-serif;
+  font-size: 16px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.metrics-note {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.45);
+  margin: 0;
 }
 
 .bottom-actions {

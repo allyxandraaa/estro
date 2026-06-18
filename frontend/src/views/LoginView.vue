@@ -62,7 +62,6 @@ async function handleSubmit() {
           autocomplete="current-password"
           required
         />
-        <a class="field-meta" href="#" @click.prevent>забули пароль?</a>
       </div>
 
       <button class="auth-submit" type="submit" :disabled="submitting">

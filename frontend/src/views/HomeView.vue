@@ -60,6 +60,12 @@ const monthLabel = computed(() => MONTHS[viewMonth.value - 1] + ' ' + viewYear.v
 const hasActivePeriod = computed(() => allDays.value.some(d => d.is_menstruation))
 const hasOpenCycle    = computed(() => activeCycle.value !== null)
 const canDelete       = computed(() => activeCycle.value !== null || completedCycles.value.length > 0)
+const canEnd          = computed(() => canDelete.value || allDays.value.some(d => d.is_menstruation_predicted))
+const canConfirmEnd   = computed(() => {
+  if (!pickedDay.value) return false
+  if (pickedCycleId.value) return true
+  return !!inferredEndStartFor({ date: pickedDay.value })
+})
 
 const pickingHint = computed(() => {
   if (!pickingMode.value) return ''
@@ -238,7 +244,7 @@ function _phaseForDay(day, idx) {
     }
   }
 
-  const WINDOW = 45
+  const WINDOW = 120
   let prevOvIdx = -1, nextOvIdx = -1, nextMenIdx = -1
   for (let i = idx - 1; i >= Math.max(0, idx - WINDOW); i--) {
     if (days[i].is_ovulation_predicted) { prevOvIdx = i; break }
@@ -360,9 +366,17 @@ function onTimelineWheel(e) {
 // scrollTo without snap interference; after scroll: extend if needed
 function gotoMonth(m, y) {
   const isCurrentMonth = m === _today.getMonth() + 1 && y === _today.getFullYear()
-  const idx = isCurrentMonth
-    ? allDays.value.findIndex(d => d.is_today)
-    : allDays.value.findIndex(d => d.month === m && d.year === y)
+  let idx
+  if (isCurrentMonth) {
+    idx = allDays.value.findIndex(d => d.is_today)
+  } else {
+    const cycleStart = allDays.value.findIndex(
+      d => d.month === m && d.year === y && (d.is_menstruation || d.is_menstruation_predicted)
+    )
+    idx = cycleStart >= 0
+      ? cycleStart
+      : allDays.value.findIndex(d => d.month === m && d.year === y)
+  }
   if (idx < 0 || !trackRef.value) return
   clearTimeout(snapTimer)
   isSnapping = true
@@ -498,24 +512,66 @@ function isInDeleteRange(day) {
   return day.is_menstruation && day.date >= c.start_date
 }
 
-function isDayMuted(day) {
-  if (pickingMode.value === 'end') {
-    if (!pickedCycleId.value) {
-      // Крок 1: вибір циклу — доступні лише дні менструації
-      return !day.is_menstruation
-    }
-    // Крок 2: вибір нового кінцевого дня — від старту обраного циклу до сьогодні
-    const d = new Date()
-    const todayStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
-    const c = completedCycles.value.find(c2 => c2.id === pickedCycleId.value)
-              ?? (activeCycle.value?.id === pickedCycleId.value ? activeCycle.value : null)
-    const startStr = c?.start_date
-    return !startStr || day.date < startStr || day.date > todayStr
+function inferredEndStartFor(day) {
+  // When a cycle is already selected (step 2), return its start date directly
+  const selectedCycle = completedCycles.value.find(c => c.id === pickedCycleId.value)
+    ?? (activeCycle.value?.id === pickedCycleId.value ? activeCycle.value : null)
+  if (selectedCycle) return selectedCycle.start_date
+
+  // Step 1: find the nearest cycle whose start is on or before this day.
+  // Check completed cycles — more reliable than allDays markers.
+  const containing = completedCycles.value.find(
+    c => c.start_date <= day.date && c.end_date && c.end_date >= day.date
+  )
+  if (containing) return containing.start_date
+
+  const sorted = [...completedCycles.value].sort((a, b) => b.start_date.localeCompare(a.start_date))
+  const latestCompleted = sorted.find(c => c.start_date <= day.date)
+
+  const activeBefore = (activeCycle.value && activeCycle.value.start_date <= day.date)
+    ? activeCycle.value
+    : null
+
+  if (latestCompleted && activeBefore) {
+    return latestCompleted.start_date >= activeBefore.start_date
+      ? latestCompleted.start_date
+      : activeBefore.start_date
   }
-  if (pickingMode.value === 'delete') return !day.is_menstruation
-  return false
+  if (latestCompleted) return latestCompleted.start_date
+  if (activeBefore) return activeBefore.start_date
+
+  // Fallback: scan allDays markers
+  const idx = allDays.value.findIndex(d => d.date === day.date)
+  if (idx < 0) return null
+  for (let i = idx; i >= 0; i--) {
+    const d = allDays.value[i]
+    if (!d.is_menstruation && !d.is_menstruation_predicted) continue
+    let startIdx = i
+    while (
+      startIdx > 0 &&
+      (allDays.value[startIdx - 1].is_menstruation || allDays.value[startIdx - 1].is_menstruation_predicted)
+    ) {
+      startIdx--
+    }
+    return allDays.value[startIdx].date
+  }
+  return null
 }
 
+function isDayMuted(day) {
+  if (pickingMode.value === 'end') {
+    const d = new Date()
+    const todayStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+    if (day.date > todayStr) return true
+    const startStr = inferredEndStartFor(day)
+    return !startStr || day.date < startStr
+  }
+  if (pickingMode.value === 'delete') {
+    if (day.is_menstruation) return false
+    return !completedCycles.value.some(c => c.start_date <= day.date && c.end_date && c.end_date >= day.date)
+  }
+  return false
+}
 function onDayClick(day) {
   if (drag.moved) return
   const idx = allDays.value.findIndex(d => d.date === day.date)
@@ -533,11 +589,42 @@ function onDayClick(day) {
     const found = completedCycles.value.find(
       c => c.start_date <= day.date && c.end_date && c.end_date >= day.date
     )
-    if (found) { pickedCycleId.value = found.id }
-    else if (activeCycle.value && day.date >= activeCycle.value.start_date) {
+    if (found) {
+      pickedCycleId.value = found.id
+    } else if (activeCycle.value && day.date >= activeCycle.value.start_date) {
       pickedCycleId.value = activeCycle.value.id
+    } else {
+      // Клік після останнього завершеного циклу — вибираємо найближчий попередній
+      const sorted = [...completedCycles.value].sort((a, b) => b.start_date.localeCompare(a.start_date))
+      const nearest = sorted.find(c => c.start_date <= day.date)
+      if (!nearest) return
+      pickedCycleId.value = nearest.id
     }
-    return
+    // Скролимо до кінця обраного циклу (або сьогодні для активного)
+    const selCycle = completedCycles.value.find(c => c.id === pickedCycleId.value)
+      ?? (activeCycle.value?.id === pickedCycleId.value ? activeCycle.value : null)
+    const now = new Date()
+    const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+    const scrollTarget = selCycle?.end_date ?? todayStr
+    const targetIdx = allDays.value.findIndex(d => d.date === scrollTarget)
+    if (targetIdx >= 0 && trackRef.value) {
+      setTimeout(() => {
+        clearTimeout(snapTimer)
+        isSnapping = true
+        trackRef.value.scrollTo({ left: targetIdx * CELL_W, behavior: 'smooth' })
+        setTimeout(() => { isSnapping = false; updateMonthLabel() }, 600)
+      }, 350)
+    }
+  }
+
+  if (pickingMode.value === 'end' && pickedCycleId.value) {
+    const found = completedCycles.value.find(
+      c => c.start_date <= day.date && c.end_date && c.end_date >= day.date
+    )
+    if (found && found.id !== pickedCycleId.value) {
+      pickedCycleId.value = found.id
+      return
+    }
   }
 
   pickedDay.value = day.date
@@ -561,6 +648,19 @@ async function refreshData() {
   const cm = today.getMonth() + 1, cy = today.getFullYear()
 
   // Зкидаємо кеш щоб дозволити повторний фетч
+  if (!allDays.value.some(d => d.month === cm && d.year === cy)) {
+    const currentDays = buildLocalDays(cm, cy)
+    const first = allDays.value[0]
+    if (first && (cy < first.year || (cy === first.year && cm < first.month))) {
+      allDays.value = [...currentDays, ...allDays.value]
+      await nextTick()
+      if (trackRef.value) trackRef.value.scrollLeft += currentDays.length * CELL_W
+    } else {
+      allDays.value = [...allDays.value, ...currentDays]
+      await nextTick()
+    }
+  }
+
   const monthKeys = [...new Set(allDays.value.map(d => `${d.year}-${d.month}`))]
   monthKeys.forEach(k => fetchedMonths.delete(k))
 
@@ -593,6 +693,10 @@ async function refreshData() {
     const idx = allDays.value.findIndex(d => d.date === centeredDay.value.date)
     if (idx >= 0) _phaseForDay(allDays.value[idx], idx)
   }
+
+  // Оновлюємо розміри кіл після того як дані змінилися
+  await nextTick()
+  updateScales()
 }
 
 async function confirmStart() {
@@ -610,16 +714,20 @@ async function confirmStart() {
 }
 
 async function confirmEnd() {
-  if (!pickedDay.value || !pickedCycleId.value) return
+  if (!canConfirmEnd.value) return
   const date = pickedDay.value
   const cycleId = pickedCycleId.value
+  const inferredStart = !cycleId ? inferredEndStartFor({ date }) : null
   const isActive = activeCycle.value?.id === cycleId
   pickingMode.value = null
   pickedDay.value = null
   pickedCycleId.value = null
   errorMsg.value = ''
   try {
-    if (isActive) {
+    if (!cycleId && inferredStart) {
+      await startCycle(inferredStart)
+      await endCycle(date)
+    } else if (isActive) {
       await endCycle(date)
     } else {
       await updateCycleEnd(cycleId, date)
@@ -891,7 +999,7 @@ onBeforeUnmount(() => {
     <div v-else-if="choosingType" class="actions">
       <button class="btn btn--outline" @click="cancelPickingMode">Скасувати</button>
       <button class="btn btn--filled" @click="enterStartMode">Початок</button>
-      <button class="btn btn--outline" :disabled="!canDelete" @click="enterEndMode">Кінець</button>
+      <button class="btn btn--outline" :disabled="!canEnd" @click="enterEndMode">Кінець</button>
       <button class="btn btn--outline btn--delete" :disabled="!canDelete" @click="enterDeleteMode">Видалити</button>
     </div>
 
@@ -903,7 +1011,7 @@ onBeforeUnmount(() => {
         Підтвердити початок
       </button>
       <button v-else-if="pickingMode === 'end'" class="btn btn--menstruation"
-              :disabled="!pickedDay || !pickedCycleId" @click="confirmEnd">
+              :disabled="!canConfirmEnd" @click="confirmEnd">
         Підтвердити кінець
       </button>
       <button v-else class="btn btn--delete-confirm"
