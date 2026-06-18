@@ -29,10 +29,8 @@ class OnboardingService:
             period_length = DEFAULT_PERIOD_LENGTH
             is_calculated = True
 
-        if data.last_period_date is not None:
-            last_period_date = data.last_period_date
-        else:
-            last_period_date = date.today()
+        last_period_date = data.last_period_date
+        if last_period_date is None:
             is_calculated = True
 
         user = await self._repository.update_user_profile(
@@ -46,14 +44,15 @@ class OnboardingService:
         if not user:
             raise ValueError("User not found")
 
-        # Create an initial Cycle record so the calendar has real data to show.
-        # Skip if the user already has cycles (re-onboarding case).
-        has_active = await self._cycle_repository.get_active_cycle(user_id)
-        has_completed = await self._cycle_repository.get_last_completed_cycles(user_id, limit=1)
-        if not has_active and not has_completed:
-            cycle = await self._cycle_repository.create_cycle(user_id, last_period_date)
-            expected_end = last_period_date + timedelta(days=period_length - 1)
-            if expected_end < date.today():
-                await self._cycle_repository.close_cycle(cycle, expected_end)
+        # Створюємо початковий цикл тільки якщо юзер явно вказав дату останньої менструації.
+        # Якщо пропустив — нічого не створюємо, юзер відмітить сам.
+        if last_period_date is not None:
+            has_active = await self._cycle_repository.get_active_cycle(user_id)
+            has_completed = await self._cycle_repository.get_last_completed_cycles(user_id, limit=1)
+            if not has_active and not has_completed:
+                cycle = await self._cycle_repository.create_cycle(user_id, last_period_date)
+                expected_end = last_period_date + timedelta(days=period_length - 1)
+                if expected_end < date.today():
+                    await self._cycle_repository.close_cycle(cycle, expected_end)
 
         return user

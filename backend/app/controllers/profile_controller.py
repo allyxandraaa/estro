@@ -6,25 +6,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.controllers.onboarding_controller import get_current_user_id
 from app.database import get_session
+from app.repositories.cycle_repository import CycleRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.profile import ProfileResponse, ProfileUpdateRequest
+from app.services.cycle_projection_service import CycleProjectionService
 from app.utils.profile import derive_name_from_email
 
 router = APIRouter(prefix="/api/users", tags=["Profile"])
 
 
-def _get_user_repository(
-    session: AsyncSession = Depends(get_session),
-) -> UserRepository:
-    return UserRepository(session)
+async def _profile_response(user, session: AsyncSession) -> ProfileResponse:
+    cycle_repo = CycleRepository(session)
+    completed = await cycle_repo.get_last_completed_cycles(user.id, limit=24)
+    active = await cycle_repo.get_active_cycle(user.id)
+    cycle_length, period_length, *_ = CycleProjectionService._compute_cycle_params(
+        user, completed, active_start=active.start_date if active else None
+    )
+    return ProfileResponse(
+        name=user.name,
+        email=user.email,
+        average_cycle_length=cycle_length,
+        average_period_length=period_length,
+    )
 
 
 @router.get("/profile", response_model=ProfileResponse)
 async def get_profile(
     user_id: UUID = Depends(get_current_user_id),
-    repository: UserRepository = Depends(_get_user_repository),
+    session: AsyncSession = Depends(get_session),
 ) -> ProfileResponse:
-    user = await repository.get_by_id(user_id)
+    user_repo = UserRepository(session)
+    user = await user_repo.get_by_id(user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -32,7 +44,7 @@ async def get_profile(
         )
 
     if not user.name:
-        updated = await repository.update_fields(
+        updated = await user_repo.update_fields(
             user_id,
             {"name": derive_name_from_email(user.email)},
         )
@@ -43,16 +55,17 @@ async def get_profile(
             )
         user = updated
 
-    return ProfileResponse.model_validate(user)
+    return await _profile_response(user, session)
 
 
 @router.patch("/profile", response_model=ProfileResponse)
 async def update_profile(
     data: ProfileUpdateRequest,
     user_id: UUID = Depends(get_current_user_id),
-    repository: UserRepository = Depends(_get_user_repository),
+    session: AsyncSession = Depends(get_session),
 ) -> ProfileResponse:
-    user = await repository.get_by_id(user_id)
+    user_repo = UserRepository(session)
+    user = await user_repo.get_by_id(user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -64,7 +77,7 @@ async def update_profile(
         values["name"] = values["name"].strip()
     if "email" in values and values["email"] is not None:
         values["email"] = str(values["email"])
-        existing = await repository.get_by_email(values["email"])
+        existing = await user_repo.get_by_email(values["email"])
         if existing and existing.id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -73,20 +86,8 @@ async def update_profile(
         if not values.get("name") and not user.name:
             values["name"] = derive_name_from_email(values["email"])
 
-    next_cycle_length = values.get("average_cycle_length", user.average_cycle_length)
-    next_period_length = values.get("average_period_length", user.average_period_length)
-    if (
-        next_cycle_length is not None
-        and next_period_length is not None
-        and next_period_length >= next_cycle_length
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Тривалість менструації має бути меншою за тривалість циклу",
-        )
-
     try:
-        updated_user = await repository.update_fields(user_id, values)
+        updated_user = await user_repo.update_fields(user_id, values)
     except IntegrityError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -99,4 +100,4 @@ async def update_profile(
             detail="Користувача для цього токена не знайдено",
         )
 
-    return ProfileResponse.model_validate(updated_user)
+    return await _profile_response(updated_user, session)

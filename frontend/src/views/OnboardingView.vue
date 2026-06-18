@@ -36,7 +36,7 @@ function startOnboarding() { step.value = 1 }
 function skipCycle() {
   clearSkip()
   cycleLength.value = 28
-  skipMsg.value = 'Ми автоматично встановимо середню медичну норму — 28 днів. Ви зможете змінити це пізніше в налаштуваннях.'
+  skipMsg.value = 'Ми встановимо середню норму — 28 днів. Прогноз автоматично уточниться, як тільки ви додасте реальні цикли.'
   skipTimer = setTimeout(() => { clearSkip(); step.value = 2 }, 2000)
 }
 
@@ -52,7 +52,7 @@ function continueCycle() {
 function skipPeriod() {
   clearSkip()
   periodLength.value = 5
-  skipMsg.value = 'Ми автоматично встановимо середню тривалість менструації — 5 днів. За потреби це можна буде змінити пізніше.'
+  skipMsg.value = 'Ми встановимо середню норму — 5 днів. Прогноз автоматично уточниться на основі ваших реальних даних.'
   skipTimer = setTimeout(() => { clearSkip(); step.value = 3 }, 2000)
 }
 

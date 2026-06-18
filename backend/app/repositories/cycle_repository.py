@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.cycle import Cycle
@@ -36,6 +36,28 @@ class CycleRepository:
 
     async def close_cycle(self, cycle: Cycle, end_date: date) -> Cycle:
         cycle.end_date = end_date
+        await self.db.commit()
+        await self.db.refresh(cycle)
+        return cycle
+
+    async def get_cycle_containing_date(self, user_id: uuid.UUID, target_date: date) -> Cycle | None:
+        result = await self.db.execute(
+            select(Cycle)
+            .where(
+                Cycle.user_id == user_id,
+                Cycle.start_date <= target_date,
+                or_(Cycle.end_date >= target_date, Cycle.end_date.is_(None)),
+            )
+            .order_by(Cycle.start_date.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_closed_cycle(
+        self, user_id: uuid.UUID, start_date: date, end_date: date
+    ) -> Cycle:
+        cycle = Cycle(user_id=user_id, start_date=start_date, end_date=end_date)
+        self.db.add(cycle)
         await self.db.commit()
         await self.db.refresh(cycle)
         return cycle
