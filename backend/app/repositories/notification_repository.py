@@ -29,8 +29,9 @@ class NotificationRepository:
                 message=message,
                 is_read=False,
             )
-            .on_conflict_do_nothing(
-                index_elements=["user_id", "type", "scheduled_date"]
+            .on_conflict_do_update(
+                index_elements=["user_id", "type", "scheduled_date"],
+                set_={"message": message},
             )
         )
         await self.db.execute(stmt)

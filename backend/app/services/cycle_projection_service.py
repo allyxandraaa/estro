@@ -239,6 +239,16 @@ class CycleProjectionService:
         # Стартові дати завершених циклів — проекції, що збігаються з ними, є історичними, а не прогнозом
         known_cycle_starts = {c.start_date for c in recent}
 
+        delayed_candidates = [
+            p for p in projections
+            if p.predicted_start_date <= today
+            and (
+                active_cycle is None
+                or p.predicted_start_date > active_cycle.start_date
+            )
+        ]
+        delayed_proj = max(delayed_candidates, key=lambda p: p.predicted_start_date, default=None)
+
         # Ов'уляції для проміжків між завершеними циклами (для відображення фаз між ними)
         sorted_recent = sorted(recent, key=lambda c: c.start_date)
         cycle_next_starts: dict = {}
@@ -279,6 +289,8 @@ class CycleProjectionService:
             is_menstruation_predicted = False
             is_ovulation_predicted = False
             is_fertile_window = False
+            is_delay = False
+            delay_day = None
 
             for proj in projections:
                 # Пропускаємо проекцію, якщо вона відповідає відомому завершеному циклу
@@ -313,27 +325,32 @@ class CycleProjectionService:
                 is_fertile_window = False
                 is_ovulation_predicted = False
 
+            if (
+                delayed_proj
+                and delayed_proj.predicted_start_date <= current_date <= today
+                and not is_menstruation
+            ):
+                is_delay = True
+                delay_day = (current_date - delayed_proj.predicted_start_date).days + 1
+
             days.append({
                 "date": current_date.isoformat(),
                 "is_menstruation": is_menstruation,
                 "is_menstruation_predicted": is_menstruation_predicted,
                 "is_ovulation_predicted": is_ovulation_predicted,
                 "is_fertile_window": is_fertile_window,
+                "is_delay": is_delay,
+                "delay_day": delay_day,
             })
 
         current_phase, phase_subtitle = self._determine_current_phase(active_cycle, projections, active_display_period)
 
         delay = None
-        if not active_cycle:
-            delayed_proj = next(
-                (p for p in projections if p.predicted_start_date < today),
-                None,
-            )
-            if delayed_proj:
-                delay = {
-                    "days_delayed": (today - delayed_proj.predicted_start_date).days,
-                    "expected_start_date": delayed_proj.predicted_start_date.isoformat(),
-                }
+        if delayed_proj:
+            delay = {
+                "days_delayed": (today - delayed_proj.predicted_start_date).days,
+                "expected_start_date": delayed_proj.predicted_start_date.isoformat(),
+            }
 
         return {
             "days": days,

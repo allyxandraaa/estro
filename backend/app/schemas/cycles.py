@@ -10,6 +10,8 @@ class CalendarDaySchema(BaseModel):
     is_menstruation_predicted: bool
     is_ovulation_predicted: bool
     is_fertile_window: bool = False
+    is_delay: bool = False
+    delay_day: Optional[int] = None
 
 
 class ActiveCycleSchema(BaseModel):
