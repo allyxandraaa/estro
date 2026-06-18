@@ -18,7 +18,8 @@ from app.dependencies.auth import get_current_user_id
 from app.repositories.cycle_repository import CycleRepository
 from app.repositories.daily_log_repository import DailyLogRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.daily_log import DailyLogPayload, DailyLogResponse
+from app.schemas.daily_log import DailyLogPayload, DailyLogRequest, DailyLogResponse
+from app.services.daily_log_service import DailyLogService
 
 router = APIRouter(prefix="/api/daily-logs", tags=["Daily logs"])
 
@@ -68,6 +69,10 @@ VALUE_LABELS = {
 }
 
 
+def _get_service(session: AsyncSession = Depends(get_session)) -> DailyLogService:
+    return DailyLogService(session)
+
+
 def _register_pdf_font() -> str:
     if FONT_NAME in pdfmetrics.getRegisteredFontNames():
         return FONT_NAME
@@ -100,6 +105,12 @@ def _format_value(value) -> str:
     if "," in text:
         return ", ".join(_format_value(item.strip()) for item in text.split(",") if item.strip())
     return VALUE_LABELS.get(text, text)
+
+
+def _serialize_fields(fields: dict) -> dict:
+    if isinstance(fields.get("pain_location"), list):
+        fields["pain_location"] = ",".join(fields["pain_location"]) or None
+    return fields
 
 
 def _to_daily_log_response(log) -> DailyLogResponse:
@@ -276,13 +287,62 @@ async def export_daily_logs(
     )
 
 
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=DailyLogResponse)
+async def create_or_update_daily_log(
+    body: DailyLogRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    service: DailyLogService = Depends(_get_service),
+):
+    values = _serialize_fields(body.model_dump(mode="json", exclude={"date"}))
+    log = await service.upsert(user_id, body.date, **values)
+    return _to_daily_log_response(log)
+
+
+@router.get("", response_model=DailyLogResponse)
+async def get_daily_log_by_query(
+    date: date,
+    user_id: UUID = Depends(get_current_user_id),
+    service: DailyLogService = Depends(_get_service),
+):
+    log = await service.get_by_date(user_id, date)
+    if not log:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Daily log not found")
+    return _to_daily_log_response(log)
+
+
+@router.get("/range", response_model=list[DailyLogResponse])
+async def get_daily_logs_range(
+    date_from: date,
+    date_to: date,
+    user_id: UUID = Depends(get_current_user_id),
+    service: DailyLogService = Depends(_get_service),
+):
+    try:
+        logs = await service.get_range(user_id, date_from, date_to)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return [_to_daily_log_response(log) for log in logs]
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_daily_log_by_query(
+    date: date,
+    user_id: UUID = Depends(get_current_user_id),
+    service: DailyLogService = Depends(_get_service),
+):
+    deleted = await service.delete(user_id, date)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Daily log not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/{log_date}", response_model=DailyLogResponse | None)
 async def get_daily_log(
     log_date: date,
     user_id: UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(get_session),
+    service: DailyLogService = Depends(_get_service),
 ):
-    log = await DailyLogRepository(session).get_by_date(user_id, log_date)
+    log = await service.get_by_date(user_id, log_date)
     return _to_daily_log_response(log) if log else None
 
 
@@ -291,12 +351,10 @@ async def upsert_daily_log(
     log_date: date,
     payload: DailyLogPayload,
     user_id: UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(get_session),
+    service: DailyLogService = Depends(_get_service),
 ):
-    values = payload.model_dump(exclude_unset=True)
-    if isinstance(values.get("pain_location"), list):
-        values["pain_location"] = ",".join(values["pain_location"]) or None
-    log = await DailyLogRepository(session).upsert(user_id, log_date, **values)
+    values = _serialize_fields(payload.model_dump(exclude_unset=True))
+    log = await service.upsert(user_id, log_date, **values)
     if not log:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -309,7 +367,7 @@ async def upsert_daily_log(
 async def delete_daily_log(
     log_date: date,
     user_id: UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(get_session),
+    service: DailyLogService = Depends(_get_service),
 ):
-    await DailyLogRepository(session).delete(user_id, log_date)
+    await service.delete(user_id, log_date)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

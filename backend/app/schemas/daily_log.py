@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Literal, Optional
 
@@ -33,6 +33,23 @@ class DailyLogPayload(BaseModel):
 
 
 class DailyLogResponse(DailyLogPayload):
+    id: Optional[str] = None
     date: date
 
+    @field_validator("id", mode="before")
+    @classmethod
+    def uuid_to_str(cls, value):
+        return str(value) if value is not None else None
+
     model_config = {"from_attributes": True}
+
+
+class DailyLogRequest(DailyLogPayload):
+    date: date
+
+    @field_validator("date")
+    @classmethod
+    def date_not_far_in_future(cls, value: date) -> date:
+        if value > date.today() + timedelta(days=1):
+            raise ValueError("Date cannot be in the future")
+        return value
