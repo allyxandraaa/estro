@@ -33,6 +33,7 @@ const choosingType    = ref(false)
 const pickedDay       = ref(null)
 const completedCycles = ref([])
 const pickedCycleId   = ref(null)
+const timelineAnchorDate = ref(null)
 
 const notifWrap          = ref(null)
 const notificationsOpen  = ref(false)
@@ -50,6 +51,7 @@ let scaleRafId         = null
 let isSnapping         = false
 
 const fetchedMonths = new Set()
+const TIMELINE_ANCHOR_KEY = 'estro.home.timelineAnchorDate'
 
 const MONTHS       = ['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень']
 const MONTHS_SHORT = ['січ','лют','бер','кві','тра','чер','лип','сер','вер','жов','лис','гру']
@@ -111,6 +113,29 @@ function mergeApiDays(apiDays) {
   })
 }
 
+function parseDateParts(dateStr) {
+  const [year, month, day] = String(dateStr || '').split('-').map(Number)
+  if (!year || !month || !day) return null
+  return { year, month, day }
+}
+
+function storedTimelineDate() {
+  if (timelineAnchorDate.value) return timelineAnchorDate.value
+  try {
+    return sessionStorage.getItem(TIMELINE_ANCHOR_KEY)
+  } catch {
+    return null
+  }
+}
+
+function rememberTimelineDate(dateStr) {
+  if (!dateStr) return
+  timelineAnchorDate.value = dateStr
+  try {
+    sessionStorage.setItem(TIMELINE_ANCHOR_KEY, dateStr)
+  } catch {}
+}
+
 async function fetchMonthData(m, y) {
   const key = y + '-' + m
   if (fetchedMonths.has(key)) return
@@ -127,23 +152,15 @@ function updateScales() {
   if (!track) return
   const { scrollLeft, clientWidth } = track
   const viewCenterPx = scrollLeft + clientWidth / 2
-  const cullLeft  = scrollLeft - INFLUENCE
-  const cullRight = scrollLeft + clientWidth + INFLUENCE
   const cells = track.children
-
-  const startIdx = Math.max(0, Math.floor((cullLeft - clientWidth / 2) / CELL_W))
-  const endIdx = Math.min(
-    cells.length - 1,
-    Math.ceil((cullRight - clientWidth / 2) / CELL_W),
-  )
-
-  for (let i = startIdx; i <= endIdx; i++) {
-    const cellCenter = clientWidth / 2 + i * CELL_W
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i]
+    const cellCenter = cell.offsetLeft + cell.offsetWidth / 2
     const dist  = Math.abs(cellCenter - viewCenterPx)
     const t     = Math.min(dist / INFLUENCE, 1)
     const sz    = CIRC_SMALL + (CIRC_BIG - CIRC_SMALL) * (1 - t)
     const scale = sz / CIRC_BIG
-    const circle = cells[i].firstElementChild
+    const circle = cell.firstElementChild
     if (circle) circle.style.transform = 'scale(' + scale.toFixed(4) + ')'
   }
 }
@@ -310,22 +327,85 @@ function _phaseForDay(day, idx) {
 function updateMonthLabel() {
   const track = trackRef.value
   if (!track) return
-  const centerIdx = Math.round(track.scrollLeft / CELL_W)
+  const centerIdx = centeredIndexFromTrack()
   if (centerIdx >= 0 && centerIdx < allDays.value.length) {
     const d = allDays.value[centerIdx]
     viewMonth.value = d.month
     viewYear.value  = d.year
     centeredDay.value = d
+    rememberTimelineDate(d.date)
     _phaseForDay(d, centerIdx)
   }
+}
+
+function centeredIndexFromTrack() {
+  const track = trackRef.value
+  if (!track) return -1
+  const cells = Array.from(track.children)
+  if (!cells.length) return -1
+  const center = track.scrollLeft + track.clientWidth / 2
+  let bestIdx = 0
+  let bestDistance = Infinity
+  cells.forEach((cell, idx) => {
+    const cellCenter = cell.offsetLeft + cell.offsetWidth / 2
+    const distance = Math.abs(cellCenter - center)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestIdx = idx
+    }
+  })
+  return bestIdx
+}
+
+function cellStep() {
+  const track = trackRef.value
+  if (!track || track.children.length < 2) return CELL_W
+  return track.children[1].offsetLeft - track.children[0].offsetLeft
+}
+
+function scrollLeftForIndex(idx) {
+  const track = trackRef.value
+  const cell = track?.children[idx]
+  if (!track || !cell) return idx * CELL_W
+  return cell.offsetLeft + cell.offsetWidth / 2 - track.clientWidth / 2
+}
+
+function scrollToIndex(idx, behavior = 'smooth') {
+  if (!trackRef.value || idx < 0) return
+  trackRef.value.scrollTo({ left: scrollLeftForIndex(idx), behavior })
+}
+
+function centeredDateFromTrack() {
+  const centerIdx = centeredIndexFromTrack()
+  return allDays.value[centerIdx]?.date ?? centeredDay.value?.date ?? storedTimelineDate()
+}
+
+async function keepTimelineOn(dateStr) {
+  if (!dateStr) return
+  rememberTimelineDate(dateStr)
+  await nextTick()
+  await new Promise(resolve => requestAnimationFrame(resolve))
+  const idx = allDays.value.findIndex(d => d.date === dateStr)
+  if (idx < 0 || !trackRef.value) return
+  clearTimeout(snapTimer)
+  isSnapping = true
+  scrollToIndex(idx, 'auto')
+  updateScales()
+  updateMonthLabel()
+  setTimeout(() => {
+    scrollToIndex(idx, 'auto')
+    updateScales()
+    updateMonthLabel()
+  }, 50)
+  setTimeout(() => { isSnapping = false }, 180)
 }
 
 function snapToNearest() {
   const track = trackRef.value
   if (!track) return
   updateMonthLabel()
-  const nearestIdx = Math.round(track.scrollLeft / CELL_W)
-  const target = nearestIdx * CELL_W
+  const nearestIdx = centeredIndexFromTrack()
+  const target = scrollLeftForIndex(nearestIdx)
   if (Math.abs(target - track.scrollLeft) < 2) { isSnapping = false; return }
   isSnapping = true
   track.scrollTo({ left: target, behavior: 'smooth' })
@@ -354,7 +434,7 @@ async function maybeExtendBackward() {
   const prevDays = buildLocalDays(pm, py)
   allDays.value = [...prevDays, ...allDays.value]
   await nextTick()
-  track.scrollLeft += prevDays.length * CELL_W
+  track.scrollLeft += prevDays.length * cellStep()
   updateScales()
   fetchMonthData(pm, py)
 }
@@ -389,24 +469,25 @@ function onTimelineWheel(e) {
   track.scrollLeft += delta
 }
 
+function daysInMonth(m, y) {
+  return new Date(y, m, 0).getDate()
+}
+
+function targetDayForMonth(m, y) {
+  const currentDay = centeredDay.value?.day_of_month ?? parseDateParts(storedTimelineDate())?.day ?? _today.getDate()
+  return Math.min(currentDay, daysInMonth(m, y))
+}
+
 // scrollTo without snap interference; after scroll: extend if needed
 function gotoMonth(m, y) {
-  const isCurrentMonth = m === _today.getMonth() + 1 && y === _today.getFullYear()
-  let idx
-  if (isCurrentMonth) {
-    idx = allDays.value.findIndex(d => d.is_today)
-  } else {
-    const cycleStart = allDays.value.findIndex(
-      d => d.month === m && d.year === y && (d.is_menstruation || d.is_menstruation_predicted)
-    )
-    idx = cycleStart >= 0
-      ? cycleStart
-      : allDays.value.findIndex(d => d.month === m && d.year === y)
-  }
+  const targetDay = targetDayForMonth(m, y)
+  let idx = allDays.value.findIndex(d => d.month === m && d.year === y && d.day_of_month === targetDay)
+  if (idx < 0) idx = allDays.value.findIndex(d => d.month === m && d.year === y)
   if (idx < 0 || !trackRef.value) return
+  rememberTimelineDate(allDays.value[idx].date)
   clearTimeout(snapTimer)
   isSnapping = true
-  trackRef.value.scrollTo({ left: idx * CELL_W, behavior: 'smooth' })
+  scrollToIndex(idx, 'smooth')
   setTimeout(() => {
     isSnapping = false
     updateMonthLabel()
@@ -422,7 +503,7 @@ async function ensureMonthLoaded(m, y) {
       const prevDays = buildLocalDays(m, y)
       allDays.value = [...prevDays, ...allDays.value]
       await nextTick()
-      if (trackRef.value) trackRef.value.scrollLeft += prevDays.length * CELL_W
+      if (trackRef.value) trackRef.value.scrollLeft += prevDays.length * cellStep()
     } else {
       allDays.value = [...allDays.value, ...buildLocalDays(m, y)]
     }
@@ -447,7 +528,7 @@ async function prevMonth() {
     const prevDays = buildLocalDays(pm, py)
     allDays.value = [...prevDays, ...allDays.value]
     await nextTick()
-    if (trackRef.value) trackRef.value.scrollLeft += prevDays.length * CELL_W
+    if (trackRef.value) trackRef.value.scrollLeft += prevDays.length * cellStep()
     fetchMonthData(pm, py)
     await nextTick()
   }
@@ -465,7 +546,7 @@ function startScroll(dir) {
   const track = trackRef.value
   if (!track) return
   isSnapping = false
-  track.scrollBy({ left: dir * CELL_W, behavior: 'smooth' })
+  track.scrollBy({ left: dir * cellStep(), behavior: 'smooth' })
   scrollHoldTimer = setTimeout(() => {
     scrollHoldInterval = setInterval(() => {
       if (!trackRef.value) { stopScroll(); return }
@@ -498,35 +579,45 @@ function onDragEnd() { drag.active = false }
 
 // ── Вибір дня менструації прямо в таймлайні ──────
 function enterChooseMode() {
+  const keepDate = centeredDateFromTrack()
   pickedDay.value = null
   choosingType.value = true
+  keepTimelineOn(keepDate)
 }
 
 function enterStartMode() {
+  const keepDate = centeredDateFromTrack()
   choosingType.value = false
   pickedDay.value = null
   pickingMode.value = 'start'
+  keepTimelineOn(keepDate)
 }
 
 function enterEndMode() {
+  const keepDate = centeredDateFromTrack()
   choosingType.value = false
   pickedDay.value = null
   pickedCycleId.value = null
   pickingMode.value = 'end'
+  keepTimelineOn(keepDate)
 }
 
 function enterDeleteMode() {
+  const keepDate = centeredDateFromTrack()
   choosingType.value = false
   pickedDay.value = null
   pickedCycleId.value = null
   pickingMode.value = 'delete'
+  keepTimelineOn(keepDate)
 }
 
 function cancelPickingMode() {
+  const keepDate = centeredDateFromTrack()
   choosingType.value = false
   pickingMode.value = null
   pickedDay.value = null
   pickedCycleId.value = null
+  keepTimelineOn(keepDate)
 }
 
 function isInDeleteRange(day) {
@@ -604,7 +695,7 @@ function onDayClick(day) {
   if (idx >= 0 && trackRef.value) {
     clearTimeout(snapTimer)
     isSnapping = true
-    trackRef.value.scrollTo({ left: idx * CELL_W, behavior: 'smooth' })
+    scrollToIndex(idx, 'smooth')
     setTimeout(() => { isSnapping = false; updateMonthLabel() }, 600)
   }
   if (!pickingMode.value) return
@@ -626,18 +717,14 @@ function onDayClick(day) {
       if (!nearest) return
       pickedCycleId.value = nearest.id
     }
-    // Скролимо до кінця обраного циклу (або сьогодні для активного)
-    const selCycle = completedCycles.value.find(c => c.id === pickedCycleId.value)
-      ?? (activeCycle.value?.id === pickedCycleId.value ? activeCycle.value : null)
-    const now = new Date()
-    const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
-    const scrollTarget = selCycle?.end_date ?? todayStr
+    // Лишаємо камеру на дні, який користувач обрав як новий кінець.
+    const scrollTarget = day.date
     const targetIdx = allDays.value.findIndex(d => d.date === scrollTarget)
     if (targetIdx >= 0 && trackRef.value) {
       setTimeout(() => {
         clearTimeout(snapTimer)
         isSnapping = true
-        trackRef.value.scrollTo({ left: targetIdx * CELL_W, behavior: 'smooth' })
+        scrollToIndex(targetIdx, 'smooth')
         setTimeout(() => { isSnapping = false; updateMonthLabel() }, 600)
       }, 350)
     }
@@ -680,7 +767,7 @@ async function refreshData() {
     if (first && (cy < first.year || (cy === first.year && cm < first.month))) {
       allDays.value = [...currentDays, ...allDays.value]
       await nextTick()
-      if (trackRef.value) trackRef.value.scrollLeft += currentDays.length * CELL_W
+      if (trackRef.value) trackRef.value.scrollLeft += currentDays.length * cellStep()
     } else {
       allDays.value = [...allDays.value, ...currentDays]
       await nextTick()
@@ -828,9 +915,13 @@ function daysUntilText(scheduledDate) {
 
 async function loadCalendar() {
   const today = new Date()
+  const savedDate = storedTimelineDate()
+  const savedParts = parseDateParts(savedDate)
+  const baseMonth = savedParts?.month ?? today.getMonth() + 1
+  const baseYear = savedParts?.year ?? today.getFullYear()
   const days  = []
   for (let delta = -1; delta <= 1; delta++) {
-    let m = today.getMonth() + 1 + delta, y = today.getFullYear()
+    let m = baseMonth + delta, y = baseYear
     if (m < 1)  { m += 12; y-- }
     if (m > 12) { m -= 12; y++ }
     days.push(...buildLocalDays(m, y))
@@ -853,15 +944,23 @@ async function loadCalendar() {
   }
 
   // Фетч сусідніх місяців — вони вже в allDays, але без API-даних
-  const pm = cm > 1 ? cm - 1 : 12, py = cm > 1 ? cy : cy - 1
-  const nm = cm < 12 ? cm + 1 : 1,  ny = cm < 12 ? cy : cy + 1
-  fetchMonthData(pm, py)
-  fetchMonthData(nm, ny)
+  const monthKeys = [...new Set(allDays.value.map(d => `${d.year}-${d.month}`))]
+  monthKeys
+    .filter(k => k !== `${cy}-${cm}`)
+    .forEach(k => {
+      const [y, m] = k.split('-').map(Number)
+      fetchMonthData(m, y)
+    })
 
   await nextTick()
-  const todayIdx = allDays.value.findIndex(d => d.is_today)
-  if (todayIdx >= 0 && trackRef.value) {
-    trackRef.value.scrollLeft = todayIdx * CELL_W
+  const initialDate = savedDate && allDays.value.some(d => d.date === savedDate)
+    ? savedDate
+    : null
+  const initialIdx = initialDate
+    ? allDays.value.findIndex(d => d.date === initialDate)
+    : allDays.value.findIndex(d => d.is_today)
+  if (initialIdx >= 0 && trackRef.value) {
+    trackRef.value.scrollLeft = scrollLeftForIndex(initialIdx)
   }
   updateScales()
   updateMonthLabel()

@@ -47,11 +47,7 @@ class CycleProjectionService:
         today = date.today()
 
         projections = []
-        last_past_proj: CycleProjection | None = None
-        days_since_base = max(0, (today - base_date).days)
-        start_multiplier = max(0, (days_since_base - cycle_length) // cycle_length)
-
-        multiplier = start_multiplier
+        multiplier = 0 if active_start is not None else 1
         while True:
             predicted_start = base_date + timedelta(days=cycle_length * multiplier)
             if predicted_start > until:
@@ -73,17 +69,9 @@ class CycleProjectionService:
                 fertile_window_end=fertile_window_end,
             )
 
-            if predicted_end >= today or predicted_ovulation >= today:
-                projections.append(proj)
-            else:
-                last_past_proj = proj
+            projections.append(proj)
 
             multiplier += 1
-
-        # Prepend the most recent past projection so _determine_current_phase
-        # can detect the luteal phase when today falls after the last ovulation.
-        if last_past_proj is not None and projections:
-            projections.insert(0, last_past_proj)
 
         return projections
 
@@ -306,9 +294,9 @@ class CycleProjectionService:
                 )
                 if (not is_active_proj
                         and proj.predicted_start_date <= current_date <= proj.predicted_end_date
-                        and proj.predicted_end_date >= today):
+                ):
                     is_menstruation_predicted = True
-                if current_date == proj.predicted_ovulation_date and current_date >= today:
+                if current_date == proj.predicted_ovulation_date:
                     is_ovulation_predicted = True
                 if (proj.fertile_window_start and proj.fertile_window_end
                         and proj.fertile_window_start <= current_date <= proj.fertile_window_end

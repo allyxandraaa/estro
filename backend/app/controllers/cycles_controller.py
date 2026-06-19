@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -42,9 +42,14 @@ async def start_cycle(
     cycle_repo = CycleRepository(session)
     user_repo = UserRepository(session)
     user = await user_repo.get_by_id(user_id)
-    period_length = (user.average_period_length if user else None) or 5
 
     active_cycle = await cycle_repo.get_active_cycle(user_id)
+    completed_cycles = await cycle_repo.get_last_completed_cycles(user_id, limit=24)
+    _, period_length, *_ = CycleProjectionService._compute_cycle_params(
+        user,
+        completed_cycles,
+        active_start=active_cycle.start_date if active_cycle else None,
+    ) if user else (28, 5, False, 0, 0)
     containing_cycle = await cycle_repo.get_cycle_containing_date(user_id, body.date)
     if containing_cycle and (not active_cycle or containing_cycle.id != active_cycle.id):
         return StartCycleResponse(
@@ -93,6 +98,9 @@ async def start_cycle(
 
         implied_end = min(expected_end, body.date - timedelta(days=1))
         cycle = await cycle_repo.close_and_create_cycle(active_cycle, implied_end, user_id, body.date)
+        historical_end = body.date + timedelta(days=period_length - 1)
+        if historical_end < date.today():
+            cycle = await cycle_repo.close_cycle(cycle, historical_end)
     else:
         next_cycle = await cycle_repo.get_next_cycle(user_id, body.date)
         if next_cycle:
@@ -101,6 +109,16 @@ async def start_cycle(
                 next_cycle.start_date - timedelta(days=1),
             )
             cycle = await cycle_repo.create_closed_cycle(user_id, body.date, hist_end)
+            return StartCycleResponse(
+                id=str(cycle.id),
+                start_date=cycle.start_date,
+                end_date=cycle.end_date,
+            )
+
+        historical_end = body.date + timedelta(days=period_length - 1)
+        if historical_end < date.today():
+            cycle = await cycle_repo.create_closed_cycle(user_id, body.date, historical_end)
+            await user_repo.update_fields(user_id, {"last_period_date": body.date})
             return StartCycleResponse(
                 id=str(cycle.id),
                 start_date=cycle.start_date,
