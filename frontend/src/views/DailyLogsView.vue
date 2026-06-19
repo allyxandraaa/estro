@@ -305,7 +305,15 @@ function goProfile() {
 
               <section class="field-block">
                 <h2>Стрес: {{ form.stress_level ?? 0 }}/10</h2>
-                <input v-model.number="form.stress_level" class="range" type="range" min="0" max="10" step="1" />
+                <input
+                  :value="form.stress_level ?? 0"
+                  class="range"
+                  type="range"
+                  min="0"
+                  max="10"
+                  step="1"
+                  @input="form.stress_level = Number($event.target.value)"
+                />
               </section>
 
               <section class="field-block">

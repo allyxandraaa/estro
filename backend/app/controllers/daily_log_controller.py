@@ -19,6 +19,7 @@ from app.repositories.cycle_repository import CycleRepository
 from app.repositories.daily_log_repository import DailyLogRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.daily_log import DailyLogPayload, DailyLogRequest, DailyLogResponse
+from app.services.cycle_projection_service import CycleProjectionService
 from app.services.daily_log_service import DailyLogService
 
 router = APIRouter(prefix="/api/daily-logs", tags=["Daily logs"])
@@ -29,6 +30,9 @@ TEXT = {
     "title": "\u0429\u043e\u0434\u0435\u043d\u043d\u0438\u043a \u0446\u0438\u043a\u043b\u0443 \u2014 {user_name}",
     "empty": "\u041d\u0435\u043c\u0430\u0454 \u0437\u0430\u043f\u0438\u0441\u0456\u0432 \u0437\u0430 \u043e\u0431\u0440\u0430\u043d\u0438\u0439 \u043f\u0435\u0440\u0456\u043e\u0434.",
     "cycles_title": "\u041f\u043e\u0437\u043d\u0430\u0447\u0435\u043d\u0456 \u043c\u0435\u043d\u0441\u0442\u0440\u0443\u0430\u0446\u0456\u0457",
+    "summary_title": "\u0421\u0435\u0440\u0435\u0434\u043d\u0456 \u043f\u043e\u043a\u0430\u0437\u043d\u0438\u043a\u0438",
+    "avg_cycle_length": "\u0421\u0435\u0440\u0435\u0434\u043d\u044f \u0442\u0440\u0438\u0432\u0430\u043b\u0456\u0441\u0442\u044c \u0446\u0438\u043a\u043b\u0443",
+    "avg_period_length": "\u0421\u0435\u0440\u0435\u0434\u043d\u044f \u0442\u0440\u0438\u0432\u0430\u043b\u0456\u0441\u0442\u044c \u043c\u0435\u043d\u0441\u0442\u0440\u0443\u0430\u0446\u0456\u0457",
     "logs_title": "\u0429\u043e\u0434\u0435\u043d\u043d\u0456 \u0437\u0430\u043f\u0438\u0441\u0438",
     "cycle_start": "\u041f\u043e\u0447\u0430\u0442\u043e\u043a",
     "cycle_end": "\u041a\u0456\u043d\u0435\u0446\u044c",
@@ -117,7 +121,15 @@ def _to_daily_log_response(log) -> DailyLogResponse:
     return DailyLogResponse.model_validate(log)
 
 
-def _build_pdf(user_name: str, date_from: date, date_to: date, logs: list, cycles: list | None = None) -> bytes:
+def _build_pdf(
+    user_name: str,
+    date_from: date,
+    date_to: date,
+    logs: list,
+    cycles: list | None = None,
+    average_cycle_length: int | None = None,
+    average_period_length: int | None = None,
+) -> bytes:
     font_name = _register_pdf_font()
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -186,6 +198,32 @@ def _build_pdf(user_name: str, date_from: date, date_to: date, logs: list, cycle
         Paragraph(TEXT["title"].format(user_name=user_name), title_style),
         Paragraph(f"{date_from.isoformat()} \u2014 {date_to.isoformat()}", subtitle_style),
     ]
+
+    summary_rows = [[
+        Paragraph(TEXT["avg_cycle_length"], label_style),
+        Paragraph(
+            f"{average_cycle_length} {TEXT['days']}" if average_cycle_length is not None else "-",
+            value_style,
+        ),
+    ], [
+        Paragraph(TEXT["avg_period_length"], label_style),
+        Paragraph(
+            f"{average_period_length} {TEXT['days']}" if average_period_length is not None else "-",
+            value_style,
+        ),
+    ]]
+    summary_table = Table(summary_rows, colWidths=[76 * mm, 106 * mm], hAlign="LEFT")
+    summary_table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfcfcf")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e3e3e3")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("FONTNAME", (0, 0), (-1, -1), font_name),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.extend([Paragraph(TEXT["summary_title"], section_style), summary_table, Spacer(1, 6 * mm)])
 
     cycles = cycles or []
     if cycles:
@@ -277,8 +315,27 @@ async def export_daily_logs(
 
     user = await UserRepository(session).get_by_id(user_id)
     logs = await DailyLogRepository(session).get_range(user_id, date_from, date_to)
-    cycles = await CycleRepository(session).get_overlapping_range(user_id, date_from, date_to)
-    pdf = _build_pdf(user.name if user else "", date_from, date_to, logs, cycles)
+    cycle_repo = CycleRepository(session)
+    cycles = await cycle_repo.get_overlapping_range(user_id, date_from, date_to)
+    completed_cycles = await cycle_repo.get_last_completed_cycles(user_id, limit=24)
+    active_cycle = await cycle_repo.get_active_cycle(user_id)
+    average_cycle_length = None
+    average_period_length = None
+    if user:
+        average_cycle_length, average_period_length, *_ = CycleProjectionService._compute_cycle_params(
+            user,
+            completed_cycles,
+            active_start=active_cycle.start_date if active_cycle else None,
+        )
+    pdf = _build_pdf(
+        user.name if user else "",
+        date_from,
+        date_to,
+        logs,
+        cycles,
+        average_cycle_length=average_cycle_length,
+        average_period_length=average_period_length,
+    )
 
     return Response(
         content=pdf,
