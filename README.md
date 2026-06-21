@@ -19,7 +19,13 @@
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - Репозиторій клонований локально
 
-### 1. Запусти
+### 1. Створи `.env`
+
+```bash
+cp .env.example .env
+```
+
+### 2. Запусти
 
 ```bash
 docker compose --profile prod up --build
@@ -27,7 +33,7 @@ docker compose --profile prod up --build
 
 Перший запуск займе кілька хвилин (збірка образів). Наступні запуски — швидші.
 
-### 2. Відкрий у браузері
+### 3. Відкрий у браузері
 
 - Застосунок: http://localhost:5173
 - Документація API: http://localhost:3000/docs
