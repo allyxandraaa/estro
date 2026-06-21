@@ -59,7 +59,6 @@ const WEEKDAYS     = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб']
 
 const monthLabel = computed(() => MONTHS[viewMonth.value - 1] + ' ' + viewYear.value)
 
-const hasActivePeriod = computed(() => allDays.value.some(d => d.is_menstruation))
 const hasOpenCycle    = computed(() => activeCycle.value !== null)
 const canDelete       = computed(() => activeCycle.value !== null || completedCycles.value.length > 0)
 const canEnd          = computed(() => canDelete.value || allDays.value.some(d => d.is_menstruation_predicted))
